@@ -35,11 +35,104 @@ public final class DispatcherSmali {
         if (invokes == null || invokes.isEmpty()) {
             throw new IllegalStateException("调度器至少需要一个弹窗入口");
         }
+        List<List<List<String>>> groups = new java.util.ArrayList<>();
+        for (String s : invokes) {
+            List<List<String>> pkg = new java.util.ArrayList<>();
+            List<String> snip = new java.util.ArrayList<>();
+            snip.add(s);
+            pkg.add(snip);
+            groups.add(pkg);
+        }
+        return buildSnippets(groups, workDir);
+    }
+
+    /**
+     * 片段版调度器：每个候选弹窗包 = 一组 smali 片段行，
+     * 分支内顺序执行该包全部片段（整包一个 try-catch）。
+     *
+     * @param groups 每个弹窗包的片段列表
+     */
+    public static File buildSnippets(List<List<List<String>>> groups, File workDir) throws Exception {
+        if (groups == null || groups.isEmpty()) {
+            throw new IllegalStateException("调度器至少需要一个弹窗入口");
+        }
+        int count = groups.size();
+        int maxReg = 3;
+        for (List<List<String>> pkg : groups) {
+            if (pkg == null) continue;
+            for (List<String> snip : pkg) {
+                if (snip == null) continue;
+                for (String line : snip) maxReg = Math.max(maxReg, maxVReg(line));
+            }
+        }
+        int locals = maxReg + 2; // 片段寄存器 + exception 专用高位寄存器
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(".class public ").append(CLASS_TYPE).append('\n')
+          .append(".super Ljava/lang/Object;\n")
+          .append('\n')
+          .append(".method public static dispatch(Landroid/content/Context;)V\n")
+          .append("    .locals ").append(locals).append('\n')
+          .append('\n')
+          .append("    new-instance v0, Ljava/util/Random;\n")
+          .append("    invoke-direct {v0}, Ljava/util/Random;-><init>()V\n")
+          .append('\n')
+          .append("    invoke-static {}, Ljava/lang/System;->currentTimeMillis()J\n")
+          .append("    move-result-wide v1\n")
+          .append("    invoke-virtual {v0, v1, v2}, Ljava/util/Random;->setSeed(J)V\n")
+          .append('\n')
+          .append("    const v").append(locals - 1).append(", 0x")
+            .append(Integer.toHexString(count)).append('\n')
+          .append("    invoke-virtual {v0, v").append(locals - 1)
+            .append("}, Ljava/util/Random;->nextInt(I)I\n")
+          .append("    move-result v1\n")
+          .append('\n')
+          .append("    packed-switch v1, :pswitch_data_0\n")
+          .append("    return-void\n")
+          .append('\n');
+
+        int exReg = locals - 1;
+        for (int k = 0; k < count; k++) {
+            sb.append("    :pswitch_").append(k).append('\n')
+              .append("    :try_start_").append(k).append('\n');
+            List<List<String>> pkg = groups.get(k);
+            if (pkg != null) {
+                for (List<String> snip : pkg) {
+                    if (snip == null) continue;
+                    for (String line : snip) {
+                        if (line == null || line.trim().isEmpty()
+                                || line.trim().startsWith(".locals")
+                                || line.trim().startsWith(".registers")) continue;
+                        sb.append("    ").append(line.trim()).append('\n');
+                    }
+                }
+            }
+            sb.append("    :try_end_").append(k).append('\n')
+              .append("    .catch Ljava/lang/Throwable; {:try_start_").append(k)
+                .append(" .. :try_end_").append(k).append("} :catch_").append(k).append('\n')
+              .append("    goto/32 :goto_done\n")
+              .append("    :catch_").append(k).append('\n')
+              .append("    move-exception v").append(exReg).append('\n')
+              .append("    goto/32 :goto_done\n")
+              .append('\n');
+        }
+
+        sb.append("    :goto_done\n")
+          .append("    return-void\n")
+          .append('\n')
+          .append("    :pswitch_data_0\n")
+          .append("    .packed-switch 0x0\n");
+        for (int k = 0; k < count; k++) {
+            sb.append("        :pswitch_").append(k).append('\n');
+        }
+        sb.append("    .end packed-switch\n")
+          .append(".end method\n");
+
         File smaliDir = new File(workDir, "dispatcher_smali");
         smaliDir.mkdirs();
         File smaliFile = new File(smaliDir, "com/xypopup/dispatch/Dispatcher.smali");
         smaliFile.getParentFile().mkdirs();
-        FileIo.write(smaliFile, render(invokes.size(), invokes));
+        FileIo.write(smaliFile, sb.toString());
 
         File dex = new File(workDir, "dispatcher.dex");
         SmaliOptions opts = new SmaliOptions();
@@ -65,54 +158,14 @@ public final class DispatcherSmali {
         return dex;
     }
 
-    private static String render(int count, List<String> invokes) {
-        StringBuilder sb = new StringBuilder();
-        sb.append(".class public ").append(CLASS_TYPE).append('\n')
-          .append(".super Ljava/lang/Object;\n")
-          .append('\n')
-          .append(".method public static dispatch(Landroid/content/Context;)V\n")
-          .append("    .locals 4\n")
-          .append('\n')
-          .append("    new-instance v0, Ljava/util/Random;\n")
-          .append("    invoke-direct {v0}, Ljava/util/Random;-><init>()V\n")
-          .append('\n')
-          .append("    invoke-static {}, Ljava/lang/System;->currentTimeMillis()J\n")
-          .append("    move-result-wide v1\n")
-          .append("    invoke-virtual {v0, v1, v2}, Ljava/util/Random;->setSeed(J)V\n")
-          .append('\n')
-          .append("    const v3, 0x").append(Integer.toHexString(count)).append('\n')
-          .append("    invoke-virtual {v0, v3}, Ljava/util/Random;->nextInt(I)I\n")
-          .append("    move-result v1\n")
-          .append('\n')
-          .append("    packed-switch v1, :pswitch_data_0\n")
-          .append("    return-void\n")
-          .append('\n');
-
-        for (int k = 0; k < count; k++) {
-            sb.append("    :pswitch_").append(k).append('\n')
-              .append("    :try_start_").append(k).append('\n')
-              .append("    ").append(invokes.get(k)).append('\n')
-              .append("    :try_end_").append(k).append('\n')
-              .append("    .catch Ljava/lang/Throwable; {:try_start_").append(k)
-                .append(" .. :try_end_").append(k).append("} :catch_").append(k).append('\n')
-              .append("    goto/32 :goto_done\n")
-              .append("    :catch_").append(k).append('\n')
-              .append("    move-exception v0\n")
-              .append("    goto/32 :goto_done\n")
-              .append('\n');
+    private static int maxVReg(String line) {
+        int max = -1;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\bv(\\d+)\\b")
+                .matcher(line == null ? "" : line);
+        while (m.find()) {
+            max = Math.max(max, Integer.parseInt(m.group(1)));
         }
-
-        sb.append("    :goto_done\n")
-          .append("    return-void\n")
-          .append('\n')
-          .append("    :pswitch_data_0\n")
-          .append("    .packed-switch 0x0\n");
-        for (int k = 0; k < count; k++) {
-            sb.append("        :pswitch_").append(k).append('\n');
-        }
-        sb.append("    .end packed-switch\n")
-          .append(".end method\n");
-        return sb.toString();
+        return max;
     }
 
     private static final class FileIo {

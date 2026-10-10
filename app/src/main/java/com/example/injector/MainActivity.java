@@ -40,6 +40,7 @@ import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
 import com.google.android.material.radiobutton.MaterialRadioButton;
 import com.google.android.material.snackbar.Snackbar;
+import com.google.android.material.switchmaterial.SwitchMaterial;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 
@@ -57,15 +58,15 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.Enumeration;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -79,9 +80,11 @@ import com.example.injector.core.ApkSignerService;
 import com.example.injector.core.AxmlParser;
 import com.example.injector.core.BuiltinPopups;
 import com.example.injector.core.DispatcherSmali;
+import com.example.injector.core.LicenseSmali;
 import com.example.injector.core.ManifestInfo;
+import com.example.injector.core.PopupConfig;
+import com.example.injector.core.PopupPackage;
 import com.example.injector.core.SmaliInjector;
-import com.example.injector.core.ZipSafety;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -95,10 +98,10 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_STRATEGY = "strategy";
     private static final String STRATEGY_RANDOM = "random";
     private static final String STRATEGY_SEQUENCE = "sequence";
+    private static final String KEY_LAST_HOST = "last_host";
+    private static final String KEY_LAST_POPUPS = "last_popups";
+    private static final String KEY_LICENSE = "license_enabled";
     private static final long WINDOW_MS = 10 * 60_000L;
-
-    private static final Pattern INVOKE_REF =
-            Pattern.compile("L([\\w$/]+);->(\\w+)\\(");
 
     private static final String OFFLINE_NOTICE =
             "离线演示公告：\n"
@@ -110,16 +113,18 @@ public class MainActivity extends AppCompatActivity {
     private FrameLayout content;
     private BottomNavigationView bottomNav;
 
-    private Uri apkUri;
-    private final List<Uri> zipUris = new ArrayList<>();
-    private final Set<String> pickedSignatures = new HashSet<>();
-    private Uri lastZipUri;
+    private File hostFile;
+    private final List<File> popupFiles = new ArrayList<>();
+    private final Map<File, String> builtinNames = new HashMap<>();
+    private final Map<File, PopupPackage> pkgCache = new HashMap<>();
+    private File lastZip;
     private Uri ksUri;
 
     private LogConsole logger;
     private LogConsole previewLogger;
     private LogConsole settingsLogger;
     private TextView tvZipCount;
+    private LinearLayout popupListContainer;
 
     private ActivityResultLauncher<Intent> apkPicker, zipPicker, ksPicker;
 
@@ -152,8 +157,25 @@ public class MainActivity extends AppCompatActivity {
         apkPicker = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(), r -> {
                     if (r.getResultCode() == Activity.RESULT_OK && r.getData() != null) {
-                        apkUri = r.getData().getData();
-                        if (logger != null) logger.ok("已选择 APK：" + shortUri(apkUri));
+                        Uri u = r.getData().getData();
+                        // SAF Uri 授权随时可能失效，选择时就地缓存私有副本
+                        File imported = new File(getCacheDir(), "imported");
+                        imported.mkdirs();
+                        File copy = new File(imported, "host_" + System.currentTimeMillis() + ".apk");
+                        try (InputStream in = getContentResolver().openInputStream(u);
+                             FileOutputStream out = new FileOutputStream(copy)) {
+                            byte[] buf = new byte[8192];
+                            int n;
+                            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                        } catch (Exception e) {
+                            copy.delete();
+                            if (logger != null) logger.error("APK 读取失败：" + e.getMessage());
+                            snack("APK 读取失败");
+                            return;
+                        }
+                        hostFile = copy;
+                        saveHostMemory();
+                        if (logger != null) logger.ok("已选择 APK：" + hostFile.getName());
                         snack("APK 已就位☆");
                     }
                 });
@@ -175,12 +197,11 @@ public class MainActivity extends AppCompatActivity {
                     imported.mkdirs();
                     int added = 0;
                     List<String> failed = new ArrayList<>();
-                    Uri lastAdded = null;
+                    File lastAdded = null;
                     for (Uri u : picked) {
-                        if (u == null || pickedSignatures.contains(u.toString())) continue;
-                        pickedSignatures.add(u.toString());
+                        if (u == null) continue;
                         File copy = new File(imported, "popup_"
-                                + System.currentTimeMillis() + "_" + zipUris.size() + ".zip");
+                                + System.currentTimeMillis() + "_" + popupFiles.size() + ".zip");
                         try (InputStream in = getContentResolver().openInputStream(u);
                              FileOutputStream out = new FileOutputStream(copy)) {
                             byte[] buf = new byte[8192];
@@ -188,7 +209,6 @@ public class MainActivity extends AppCompatActivity {
                             while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
                         } catch (Exception e) {
                             copy.delete();
-                            pickedSignatures.remove(u.toString());
                             failed.add(shortUri(u));
                             if (logger != null) {
                                 logger.error("弹窗包读取失败，已跳过："
@@ -196,23 +216,23 @@ public class MainActivity extends AppCompatActivity {
                             }
                             continue;
                         }
-                        Uri local = Uri.fromFile(copy);
-                        zipUris.add(local);
-                        lastAdded = local;
+                        popupFiles.add(copy);
+                        lastAdded = copy;
                         added++;
                     }
-                    if (added > 0) lastZipUri = lastAdded;
+                    if (added > 0) {
+                        lastZip = lastAdded;
+                        savePopupMemory();
+                    }
                     if (logger != null && added > 0) {
-                        logger.ok("已加入 " + added + " 个弹窗包 · 共 " + zipUris.size() + " 个");
+                        logger.ok("已加入 " + added + " 个弹窗包 · 共 " + popupFiles.size() + " 个");
                     }
                     if (!failed.isEmpty() && previewLogger != null) {
                         previewLogger.warn("以下弹窗包无法读取："
                                 + TextUtils.join("、", failed));
                     }
                     refreshZipCount();
-                    if (lastZipUri != null && bottomNav.getSelectedItemId() == 1) {
-                        previewPopupInline(lastZipUri);
-                    }
+                    refreshPopupList();
                 });
         ksPicker = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(), r -> {
@@ -223,6 +243,51 @@ public class MainActivity extends AppCompatActivity {
                 });
 
         bottomNav.setSelectedItemId(1);
+        restoreMemory();
+    }
+
+    // =========================================================
+    //                    上次选择记忆
+    // =========================================================
+    private void saveHostMemory() {
+        sp.edit().putString(KEY_LAST_HOST,
+                hostFile == null ? "" : hostFile.getAbsolutePath()).apply();
+    }
+
+    private void savePopupMemory() {
+        StringBuilder sb = new StringBuilder();
+        for (File f : popupFiles) {
+            if (sb.length() > 0) sb.append('\n');
+            sb.append(f.getAbsolutePath());
+        }
+        sp.edit().putString(KEY_LAST_POPUPS, sb.toString()).apply();
+    }
+
+    private void restoreMemory() {
+        String host = sp.getString(KEY_LAST_HOST, "");
+        if (!host.isEmpty()) {
+            File f = new File(host);
+            if (f.exists()) {
+                hostFile = f;
+                if (logger != null) logger.info("已恢复上次 APK：" + f.getName());
+            }
+        }
+        String pops = sp.getString(KEY_LAST_POPUPS, "");
+        if (!pops.isEmpty()) {
+            for (String p : pops.split("\n")) {
+                if (p.isEmpty()) continue;
+                File f = new File(p);
+                if (f.exists()) popupFiles.add(f);
+            }
+            if (!popupFiles.isEmpty()) {
+                lastZip = popupFiles.get(popupFiles.size() - 1);
+                if (logger != null) {
+                    logger.info("已恢复上次弹窗包 " + popupFiles.size() + " 个");
+                }
+            }
+        }
+        refreshZipCount();
+        refreshPopupList();
     }
 
     // =========================================================
@@ -263,7 +328,7 @@ public class MainActivity extends AppCompatActivity {
         innerZip.setPadding(dp(20), dp(16), dp(20), dp(16));
         cardZip.addView(innerZip);
         TextInputLayout tilZip = new TextInputLayout(this);
-        tilZip.setHint("弹窗包（可多选 · 选完自动预览）");
+        tilZip.setHint("弹窗包（可多选）");
         TextInputEditText etZip = new TextInputEditText(this);
         etZip.setFocusable(false);
         etZip.setClickable(true);
@@ -274,6 +339,10 @@ public class MainActivity extends AppCompatActivity {
         tvZipCount = labelInline("已选 0 个弹窗包");
         innerZip.addView(tvZipCount);
 
+        popupListContainer = columnNoPad();
+        popupListContainer.setPadding(0, dp(8), 0, 0);
+        innerZip.addView(popupListContainer);
+
         LinearLayout zipBtnRow = new LinearLayout(this);
         zipBtnRow.setOrientation(LinearLayout.HORIZONTAL);
         MaterialButton btnBuiltin = mdButtonTonal("内置弹窗库");
@@ -283,10 +352,13 @@ public class MainActivity extends AppCompatActivity {
             pressAnim(v);
             // 同步清理本地缓存副本
             delete(new File(getCacheDir(), "imported"));
-            zipUris.clear();
-            pickedSignatures.clear();
-            lastZipUri = null;
+            popupFiles.clear();
+            builtinNames.clear();
+            pkgCache.clear();
+            lastZip = null;
+            savePopupMemory();
             refreshZipCount();
+            refreshPopupList();
             if (logger != null) logger.info("已清空弹窗包列表");
         });
         LinearLayout.LayoutParams p1 = new LinearLayout.LayoutParams(
@@ -297,6 +369,29 @@ public class MainActivity extends AppCompatActivity {
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         innerZip.addView(zipBtnRow);
         root.addView(cardZip);
+
+        // 一机一码卡片
+        MaterialCardView cardLicense = mdCardOutlined();
+        LinearLayout innerLicense = columnNoPad();
+        innerLicense.setPadding(dp(20), dp(16), dp(20), dp(12));
+        cardLicense.addView(innerLicense);
+        innerLicense.addView(labelInline("一机一码（注册验证）"));
+        SwitchMaterial swLicense = new SwitchMaterial(this);
+        swLicense.setText("注入激活验证门（激活前弹窗不出现）");
+        swLicense.setChecked(sp.getBoolean(KEY_LICENSE, false));
+        swLicense.setOnCheckedChangeListener((b, checked) -> {
+            sp.edit().putBoolean(KEY_LICENSE, checked).apply();
+            if (logger != null) {
+                logger.info(checked ? "一机一码：已开启（注入后生成 RSA 密钥对，私钥请妥善保存）"
+                        : "一机一码：已关闭");
+            }
+        });
+        innerLicense.addView(swLicense);
+        TextView tvLicenseNote = sub("开启后宿主首次启动需输入激活码；每个 APK 独立密钥对，"
+                + "注入完成后请导出私钥，用设置页的注册机生成激活码。");
+        tvLicenseNote.setPadding(0, dp(6), 0, 0);
+        innerLicense.addView(tvLicenseNote);
+        root.addView(cardLicense);
 
         // 触发策略卡片
         MaterialCardView cardStrategy = mdCardOutlined();
@@ -360,21 +455,23 @@ public class MainActivity extends AppCompatActivity {
 
         btnStart.setOnClickListener(v -> {
             pressAnim(v);
-            if (apkUri == null) {
+            if (hostFile == null || !hostFile.exists()) {
                 logger.warn("请先选择目标 APK");
                 snack("请先选择目标 APK");
                 return;
             }
-            if (zipUris.isEmpty()) {
+            if (popupFiles.isEmpty()) {
                 logger.warn("请先选择至少一个弹窗包");
                 snack("请先选择至少一个弹窗包");
                 return;
             }
             logger.clear();
             String strategy = sp.getString(KEY_STRATEGY, STRATEGY_RANDOM);
-            logger.info("开始注入 · " + zipUris.size() + " 个弹窗 · 策略："
-                    + (STRATEGY_RANDOM.equals(strategy) ? "随机" : "依次"));
-            doFullInject(apkUri, new ArrayList<>(zipUris), strategy, progress, tvStage);
+            boolean licenseOn = sp.getBoolean(KEY_LICENSE, false);
+            logger.info("开始注入 · " + popupFiles.size() + " 个弹窗 · 策略："
+                    + (licenseOn ? "一机一码（全部弹窗，激活后显示）"
+                    : STRATEGY_RANDOM.equals(strategy) ? "随机" : "依次"));
+            doFullInject(hostFile, new ArrayList<>(popupFiles), strategy, progress, tvStage);
         });
 
         refreshZipCount();
@@ -383,15 +480,119 @@ public class MainActivity extends AppCompatActivity {
 
     private void refreshZipCount() {
         if (tvZipCount != null) {
-            tvZipCount.setText("已选 " + zipUris.size() + " 个弹窗包");
+            tvZipCount.setText("已选 " + popupFiles.size() + " 个弹窗包");
         }
     }
 
-    private void doFullInject(Uri apkSrc, List<Uri> zipSrcs, String strategy,
+    /** 重建已选弹窗包列表（名称 + 入口 + 操作按钮） */
+    private void refreshPopupList() {
+        if (popupListContainer == null) return;
+        popupListContainer.removeAllViews();
+        for (int i = 0; i < popupFiles.size(); i++) {
+            final File f = popupFiles.get(i);
+            final int idx = i;
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.VERTICAL);
+            row.setBackgroundResource(R.drawable.bg_item_soft);
+            row.setPadding(dp(12), dp(10), dp(12), dp(10));
+            LinearLayout.LayoutParams rlp = lpMatchWrap();
+            rlp.bottomMargin = dp(8);
+            popupListContainer.addView(row, rlp);
+
+            TextView tvName = new TextView(this);
+            tvName.setTextSize(14);
+            tvName.setTypeface(Typeface.DEFAULT_BOLD);
+            String mark = builtinNames.containsKey(f) ? "★内置 · " : "";
+            tvName.setText((idx + 1) + ". " + mark + stripZipName(f));
+            row.addView(tvName);
+
+            TextView tvEntry = new TextView(this);
+            tvEntry.setTextSize(12);
+            tvEntry.setTextColor(colorAttr(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            tvEntry.setPadding(0, dp(2), 0, dp(6));
+            PopupPackage cached = pkgCache.get(f);
+            tvEntry.setText(cached != null ? entryText(cached) : "解析中…");
+            row.addView(tvEntry);
+
+            LinearLayout btnRow = new LinearLayout(this);
+            btnRow.setOrientation(LinearLayout.HORIZONTAL);
+            MaterialButton btnPrev = mdButtonTonal("预览");
+            btnPrev.setPadding(dp(8), 0, dp(8), 0);
+            btnPrev.setOnClickListener(v -> { pressAnim(v); previewPopupInline(f); });
+            MaterialButton btnEdit = mdButtonTonal("编辑");
+            btnEdit.setPadding(dp(8), 0, dp(8), 0);
+            btnEdit.setOnClickListener(v -> { pressAnim(v); editPopup(f); });
+            MaterialButton btnDel = mdButtonTonal("移除");
+            btnDel.setPadding(dp(8), 0, dp(8), 0);
+            btnDel.setOnClickListener(v -> {
+                pressAnim(v);
+                popupFiles.remove(idx);
+                builtinNames.remove(f);
+                pkgCache.remove(f);
+                savePopupMemory();
+                refreshZipCount();
+                refreshPopupList();
+            });
+            LinearLayout.LayoutParams brp = new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            btnRow.addView(btnPrev, brp);
+            btnRow.addView(btnEdit, new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            LinearLayout.LayoutParams m3 = new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            m3.leftMargin = dp(8);
+            btnRow.addView(btnDel, m3);
+            row.addView(btnRow);
+
+            // 后台解析入口信息
+            if (cached == null) {
+                new Thread(() -> {
+                    PopupPackage p = parsePopupQuietly(f);
+                    if (p == null) return;
+                    pkgCache.put(f, p);
+                    runOnUiThread(() -> {
+                        if (popupFiles.contains(f)) refreshPopupList();
+                    });
+                }).start();
+            }
+        }
+    }
+
+    private String entryText(PopupPackage p) {
+        StringBuilder sb = new StringBuilder();
+        String[] e = p.primaryEntry();
+        sb.append("入口：").append(e == null ? "未识别" : e[0].replace('/', '.') + "#" + e[1]);
+        sb.append(" · 片段 ").append(p.snippets.size()).append(" 个");
+        if (!p.warnings.isEmpty()) {
+            sb.append(" · ").append(p.warnings.get(0));
+        }
+        return sb.toString();
+    }
+
+    private PopupPackage parsePopupQuietly(File f) {
+        try {
+            List<PopupPackage> pkgs = PopupPackage.parseZip(f, stripZipName(f),
+                    new File(getCacheDir(), "pkg_parse"));
+            for (PopupPackage p : pkgs) {
+                if (p.injectable()) return p;
+            }
+            return pkgs.isEmpty() ? null : pkgs.get(0);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String stripZipName(File f) {
+        String n = f.getName();
+        return n.endsWith(".zip") ? n.substring(0, n.length() - 4) : n;
+    }
+
+    private void doFullInject(File apkSrc, List<File> zipSrcs, String strategy,
                               LinearProgressIndicator progress, TextView stage) {
         new Thread(() -> {
             long t0 = System.currentTimeMillis();
             boolean isRandom = STRATEGY_RANDOM.equals(strategy);
+            boolean licenseOn = sp.getBoolean(KEY_LICENSE, false);
             File work = new File(getFilesDir(), "inject_work");
             try {
                 delete(work);
@@ -400,9 +601,8 @@ public class MainActivity extends AppCompatActivity {
                 updateUi(progress, stage, 5, "复制 APK");
                 logger.info("复制 APK 到工作目录…");
                 File apkCopy = new File(work, "base.apk");
-                try (InputStream in = getContentResolver().openInputStream(apkSrc);
+                try (InputStream in = new FileInputStream(apkSrc);
                      FileOutputStream out = new FileOutputStream(apkCopy)) {
-                    if (in == null) throw new IllegalStateException("无法读取 APK");
                     byte[] buf = new byte[8192]; int n; long total = 0;
                     while ((n = in.read(buf)) > 0) { out.write(buf, 0, n); total += n; }
                     logger.ok("APK 复制完成 · " + (total / 1024) + " KB");
@@ -423,34 +623,46 @@ public class MainActivity extends AppCompatActivity {
                 }
                 logger.ok("启动类：" + selectedActivity);
 
-                // 解包全部弹窗包
-                updateUi(progress, stage, 35, "解包弹窗包");
-                List<String> allInvokes = new ArrayList<>();
+                // 解析全部弹窗包（通用格式，嵌套变体自动展开）
+                updateUi(progress, stage, 35, "解析弹窗包");
+                List<PopupPackage> pkgs = new ArrayList<>();
+                for (File zf : zipSrcs) {
+                    List<PopupPackage> parsed = PopupPackage.parseZip(zf,
+                            stripZipName(zf), new File(work, "pkg_parse"));
+                    if (parsed.isEmpty()) {
+                        logger.warn("跳过（未识别出弹窗内容）：" + stripZipName(zf));
+                        continue;
+                    }
+                    for (PopupPackage p : parsed) {
+                        if (p.injectable()) {
+                            pkgs.add(p);
+                            for (String w : p.warnings) logger.warn(p.name + "：" + w);
+                        } else {
+                            logger.warn("跳过不可注入包：" + p.name
+                                    + "（缺 dex 或调用声明）");
+                        }
+                    }
+                }
+                if (pkgs.isEmpty()) {
+                    throw new IllegalStateException("没有可注入的弹窗包");
+                }
+                logger.ok("弹窗包就绪 " + pkgs.size() + " 个");
+
                 List<File> popupDexes = new ArrayList<>();
                 List<File> assetsDirs = new ArrayList<>();
-                for (int i = 0; i < zipSrcs.size(); i++) {
-                    File popupDir = new File(work, "popup_" + i);
-                    popupDir.mkdirs();
-                    unzip(zipSrcs.get(i), popupDir);
-                    File popupDex = new File(popupDir, "classes.dex");
-                    File configFile = new File(popupDir, "xymods.txt");
-                    File popupAssets = new File(popupDir, "assets");
-                    if (!popupDex.exists()) {
-                        throw new IllegalStateException("弹窗包 " + (i + 1) + " 缺少 classes.dex");
-                    }
-                    if (!configFile.exists()) {
-                        throw new IllegalStateException("弹窗包 " + (i + 1) + " 缺少 xymods.txt");
-                    }
-                    List<String> calls = parseSmaliCalls(readText(configFile));
-                    if (calls.isEmpty()) {
-                        throw new IllegalStateException("弹窗包 " + (i + 1)
-                                + " 的 xymods.txt 里没有调用代码");
-                    }
-                    popupDexes.add(popupDex);
-                    allInvokes.addAll(calls);
-                    if (popupAssets.exists()) assetsDirs.add(popupAssets);
-                    logger.ok("弹窗包 " + (i + 1) + " 就绪 · dex "
-                            + (popupDex.length() / 1024) + " KB · " + calls.size() + " 个调用点");
+                List<List<List<String>>> snippetGroups = new ArrayList<>();
+                List<List<String>> allSnippets = new ArrayList<>();
+                for (PopupPackage p : pkgs) {
+                    // 主 dex 走 DexClassLoader 加载链路，其余 dex 直接追加进 APK
+                    popupDexes.add(p.dexFiles.get(0));
+                    for (int i = 1; i < p.dexFiles.size(); i++) popupDexes.add(p.dexFiles.get(i));
+                    if (p.assetsDir != null) assetsDirs.add(p.assetsDir);
+                    snippetGroups.add(p.snippets);
+                    allSnippets.addAll(p.snippets);
+                    String[] e = p.primaryEntry();
+                    logger.ok("· " + p.name + " → "
+                            + (e == null ? "(片段注入)" : e[0] + "#" + e[1])
+                            + " · " + p.snippets.size() + " 片段");
                 }
 
                 updateUi(progress, stage, 50, "定位启动类所在 dex");
@@ -461,25 +673,36 @@ public class MainActivity extends AppCompatActivity {
                 String dexEntryName = targetDex.getName();
                 logger.ok("目标 dex：" + dexEntryName);
 
-                updateUi(progress, stage, 60, "插桩与调度器汇编");
+                updateUi(progress, stage, 60, "插桩与汇编");
                 List<File> extraDexes = new ArrayList<>(popupDexes);
-                String firstInvoke;
-                if (isRandom) {
-                    logger.info("汇编随机调度器…");
-                    File dispatcherDex = DispatcherSmali.build(allInvokes, work);
+                File patchedDex;
+                String licensePriv = null;
+                if (licenseOn) {
+                    logger.info("一机一码：生成 RSA 密钥对…");
+                    String[] kp = LicenseSmali.generateKeyPair();
+                    licensePriv = kp[1];
+                    logger.info("宿主 onCreate 改写为验证门结构 → 插桩 → 汇编…");
+                    File[] r = SmaliInjector.injectWithLicense(targetDex, selectedActivity,
+                            LicenseSmali.GATE_CLASS, allSnippets, work, 4, kp[0]);
+                    patchedDex = r[0];
+                    extraDexes.add(r[1]);
+                    logger.ok("验证门已就位（gate dex " + r[1].length() + " B）");
+                } else if (isRandom) {
+                    logger.info("汇编随机调度器（片段版）…");
+                    File dispatcherDex = DispatcherSmali.buildSnippets(snippetGroups, work);
                     extraDexes.add(dispatcherDex);
-                    firstInvoke = "invoke-static {p0}, "
-                            + DispatcherSmali.CLASS_TYPE
-                            + "->dispatch(Landroid/content/Context;)V";
-                    logger.ok("调度器就绪 · " + allInvokes.size() + " 个候选弹窗");
+                    logger.ok("调度器就绪 · " + pkgs.size() + " 个候选弹窗");
+                    logger.info("宿主 onCreate 插入调度调用…");
+                    patchedDex = SmaliInjector.inject(targetDex, selectedActivity,
+                            java.util.Collections.singletonList(
+                                    "invoke-static {p0}, " + DispatcherSmali.CLASS_TYPE
+                                            + "->dispatch(Landroid/content/Context;)V"),
+                            work, 4);
                 } else {
-                    firstInvoke = allInvokes.get(0);
-                    logger.info("依次插入 " + allInvokes.size() + " 个调用点…");
+                    logger.info("依次插入 " + allSnippets.size() + " 个调用片段…");
+                    patchedDex = SmaliInjector.injectSnippets(targetDex, selectedActivity,
+                            allSnippets, work, 4);
                 }
-
-                logger.info("baksmali 反编译 → 插桩 → smali 汇编…");
-                File patchedDex = SmaliInjector.inject(targetDex, selectedActivity,
-                        allInvokes, work, 4);
                 logger.ok("smali 汇编完成，生成 patched.dex");
 
                 updateUi(progress, stage, 80, "重打包 APK");
@@ -506,6 +729,9 @@ public class MainActivity extends AppCompatActivity {
                 updateUi(progress, stage, 100, "完成：" + outApk.getAbsolutePath());
                 logger.ok("注入完成☆ 耗时 " + cost + " ms");
                 logger.ok("输出：" + outApk.getAbsolutePath());
+                if (licenseOn && licensePriv != null) {
+                    exportLicenseKey(licensePriv, selectedActivity);
+                }
                 runOnUiThread(() -> snack("出击成功☆" + outApk.getAbsolutePath()));
 
             } catch (Exception e) {
@@ -520,6 +746,60 @@ public class MainActivity extends AppCompatActivity {
                 logger.info("工作目录已清理");
             }
         }).start();
+    }
+
+    /** 注入完成后导出一机一码私钥（展示 + 保存副本） */
+    private void exportLicenseKey(String privB64, String hostClass) {
+        String machineNote = "每个 APK 独立密钥对。宿主设备首次启动会显示机器码，\n"
+                + "将机器码和下面的私钥填入「设置 → 一机一码注册机」即可生成激活码。";
+        File dir = new File(getFilesDir(), "license_keys");
+        dir.mkdirs();
+        File keyFile = new File(dir, "license_"
+                + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT)
+                        .format(new Date()) + ".key");
+        try (FileOutputStream fo = new FileOutputStream(keyFile)) {
+            fo.write(privB64.getBytes("UTF-8"));
+        } catch (Exception e) {
+            logger.error("私钥保存失败：" + e.getMessage());
+        }
+        runOnUiThread(() -> {
+            LinearLayout holder = columnNoPad();
+            holder.setPadding(dp(24), dp(8), dp(24), 0);
+            TextView tvNote = new TextView(this);
+            tvNote.setTextSize(13);
+            tvNote.setText(machineNote);
+            holder.addView(tvNote);
+            TextView tvKey = new TextView(this);
+            tvKey.setTextSize(12);
+            tvKey.setTypeface(Typeface.MONOSPACE);
+            tvKey.setTextIsSelectable(true);
+            tvKey.setText(privB64);
+            tvKey.setBackgroundResource(R.drawable.bg_item_soft);
+            tvKey.setPadding(dp(12), dp(10), dp(12), dp(10));
+            LinearLayout.LayoutParams klp = lpMatchWrap();
+            klp.topMargin = dp(10);
+            holder.addView(tvKey, klp);
+            TextView tvPath = new TextView(this);
+            tvPath.setTextSize(12);
+            tvPath.setTextColor(colorAttr(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            tvPath.setPadding(0, dp(8), 0, 0);
+            tvPath.setText("已保存副本：" + keyFile.getAbsolutePath());
+            holder.addView(tvPath);
+            new AlertDialog.Builder(this)
+                    .setTitle("一机一码私钥（请妥善保存）")
+                    .setView(holder)
+                    .setPositiveButton("复制", (d, w) -> {
+                        android.content.ClipboardManager cm =
+                                (android.content.ClipboardManager)
+                                        getSystemService(Context.CLIPBOARD_SERVICE);
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText(
+                                "license_key", privB64));
+                        snack("私钥已复制到剪贴板");
+                    })
+                    .setNegativeButton("关闭", null)
+                    .show();
+            logger.ok("私钥已导出：" + keyFile.getAbsolutePath());
+        });
     }
 
     private List<String> parseManifest(File apk) throws Exception {
@@ -628,36 +908,36 @@ public class MainActivity extends AppCompatActivity {
     // =========================================================
     //                      即时预览与多选内置弹窗
     // =========================================================
-    private void previewPopupInline(Uri zipUri) {
-        if (zipUri == null) return;
+    private void previewPopupInline(File zipFile) {
+        if (zipFile == null || !zipFile.exists()) return;
         new Thread(() -> {
             try {
                 File dir = new File(getCacheDir(), "popup_inline_preview");
                 delete(dir);
                 dir.mkdirs();
-                unzip(zipUri, dir);
+                PopupPackage.unzipTolerant(zipFile, dir);
 
-                File dex = new File(dir, "classes.dex");
-                File configFile = new File(dir, "xymods.txt");
-                if (!dex.exists()) throw new IllegalStateException("缺少 classes.dex");
-                if (!configFile.exists()) throw new IllegalStateException("缺少 xymods.txt");
+                PopupPackage p = parsePopupQuietly(zipFile);
+                if (p == null) throw new IllegalStateException("未识别出弹窗内容");
+                String[] entry = p.primaryEntry();
+                if (entry == null) throw new IllegalStateException("未识别出调用入口");
+                String cls = entry[0].replace('/', '.');
+                String mtd = entry[1];
 
-                List<String> calls = parseSmaliCalls(readText(configFile));
-                if (calls.isEmpty()) throw new IllegalStateException("xymods.txt 无调用代码");
-
-                Matcher m = INVOKE_REF.matcher(calls.get(0));
-                if (!m.find()) throw new IllegalStateException("调用行解析失败");
-                String cls = m.group(1).replace('/', '.');
-                String mtd = m.group(2);
+                // 多 dex 包：全部 dex 以 ":" 拼接交给 DexClassLoader
+                StringBuilder dexPath = new StringBuilder();
+                for (File d : p.dexFiles) {
+                    d.setReadable(true, false);
+                    d.setWritable(false, false);
+                    if (dexPath.length() > 0) dexPath.append(':');
+                    dexPath.append(d.getAbsolutePath());
+                }
 
                 File opt = new File(getCacheDir(), "dex_inline_opt");
                 delete(opt);
                 opt.mkdirs();
-                // Android 10+ 拒绝加载可写路径中的 dex，必须先置为只读
-                dex.setReadable(true, false);
-                dex.setWritable(false, false);
                 DexClassLoader loader = new DexClassLoader(
-                        dex.getAbsolutePath(), opt.getAbsolutePath(), null, getClassLoader());
+                        dexPath.toString(), opt.getAbsolutePath(), null, getClassLoader());
                 Class<?> clazz = loader.loadClass(cls);
 
                 java.lang.reflect.Method method = clazz.getMethod(mtd, Context.class);
@@ -672,7 +952,8 @@ public class MainActivity extends AppCompatActivity {
                         logger.error("预览失败：" + c);
                     }
                 });
-            } catch (Exception e) {
+            } catch (Throwable e) {
+                Throwable c = e.getCause() != null ? e.getCause() : e;
                 String msg = e.getMessage() == null ? e.toString() : e.getMessage();
                 if (logger != null) logger.warn("即时预览跳过：" + msg);
             }
@@ -697,31 +978,28 @@ public class MainActivity extends AppCompatActivity {
                     }
                     new Thread(() -> {
                         try {
-                            Uri lastBuilt = null;
+                            File lastBuilt = null;
                             for (String name : picked) {
                                 File zip = BuiltinPopups.build(getApplicationContext(), name,
                                         line -> {
                                             if (log != null) log.info(line);
                                         });
-                                Uri u = Uri.fromFile(zip);
-                                if (pickedSignatures.add(u.toString())) zipUris.add(u);
-                                lastBuilt = u;
+                                if (!popupFiles.contains(zip)) popupFiles.add(zip);
+                                builtinNames.put(zip, name);
+                                lastBuilt = zip;
                             }
-                            final Uri built = lastBuilt;
+                            final File built = lastBuilt;
                             final int count = picked.size();
                             runOnUiThread(() -> {
                                 if (log != null) {
                                     log.ok("已添加 " + count + " 个内置弹窗包，共 "
-                                            + zipUris.size() + " 个");
+                                            + popupFiles.size() + " 个");
                                 }
-                                snack("内置弹窗已加入☆");
+                                snack("内置弹窗已加入☆（点「编辑」可调参数）");
                                 refreshZipCount();
-                                if (built != null) {
-                                    lastZipUri = built;
-                                    if (bottomNav.getSelectedItemId() == 1) {
-                                        previewPopupInline(built);
-                                    }
-                                }
+                                refreshPopupList();
+                                if (built != null) lastZip = built;
+                                savePopupMemory();
                             });
                         } catch (Exception e) {
                             String msg = e.getMessage() == null ? e.toString() : e.getMessage();
@@ -734,6 +1012,211 @@ public class MainActivity extends AppCompatActivity {
                 })
                 .setNegativeButton("取消", null)
                 .show();
+    }
+
+    // =========================================================
+    //                      弹窗编辑器
+    // =========================================================
+    private void editPopup(File f) {
+        String builtin = builtinNames.get(f);
+        if (builtin != null) {
+            editBuiltin(builtin, f);
+        } else {
+            editExternal(f);
+        }
+    }
+
+    /** 内置弹窗参数编辑：读 popup.conf → 动态表单 → 重建 zip */
+    private void editBuiltin(String name, File zipFile) {
+        new Thread(() -> {
+            Map<String, String> conf = new HashMap<>();
+            try {
+                File tmp = new File(getCacheDir(), "edit_conf");
+                delete(tmp);
+                tmp.mkdirs();
+                PopupPackage.unzipTolerant(zipFile, tmp);
+                File confFile = new File(tmp, "popup.conf");
+                if (confFile.exists()) {
+                    conf = PopupConfig.parseConf(readText(confFile));
+                }
+            } catch (Exception ignored) {
+            }
+            Map<String, String> values = PopupConfig.withDefaults(name, conf);
+            runOnUiThread(() -> showBuiltinEditor(name, zipFile, values));
+        }).start();
+    }
+
+    private void showBuiltinEditor(String name, File zipFile, Map<String, String> values) {
+        List<PopupConfig.Field> fields = PopupConfig.fields(name);
+        LinearLayout form = columnNoPad();
+        form.setPadding(dp(20), dp(8), dp(20), 0);
+        List<TextInputEditText> editors = new ArrayList<>();
+        for (PopupConfig.Field fld : fields) {
+            TextInputLayout til = new TextInputLayout(this);
+            til.setHint(fld.label + (fld.multiLine ? "（支持换行）" : ""));
+            TextInputEditText et = new TextInputEditText(this);
+            if (fld.numeric) {
+                et.setInputType(InputType.TYPE_CLASS_NUMBER);
+            } else if (fld.multiLine) {
+                et.setInputType(InputType.TYPE_CLASS_TEXT
+                        | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+                et.setGravity(Gravity.TOP);
+                et.setMinLines(2);
+                et.setMaxLines(6);
+            }
+            String v = values.get(fld.key);
+            if (v == null) v = "";
+            et.setText(v);
+            til.addView(et);
+            form.addView(til);
+            editors.add(et);
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("编辑：" + name)
+                .setView(form)
+                .setPositiveButton("保存并重建", (d, w) -> {
+                    Map<String, String> cfg = new HashMap<>();
+                    for (int i = 0; i < fields.size(); i++) {
+                        EditText et = editors.get(i);
+                        cfg.put(fields.get(i).key,
+                                et.getText() == null ? "" : et.getText().toString());
+                    }
+                    new Thread(() -> {
+                        try {
+                            BuiltinPopups.build(getApplicationContext(), name,
+                                    line -> {
+                                        if (logger != null) logger.info(line);
+                                    }, cfg);
+                            runOnUiThread(() -> {
+                                pkgCache.remove(zipFile);
+                                snack("已保存并重建☆");
+                                refreshPopupList();
+                            });
+                        } catch (Exception e) {
+                            String msg = e.getMessage() == null ? e.toString() : e.getMessage();
+                            runOnUiThread(() -> {
+                                if (logger != null) logger.error("重建失败：" + msg);
+                                snack("重建失败：" + msg);
+                            });
+                        }
+                    }).start();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 外部弹窗包文本编辑：解压到临时目录 → 选文本 → 修改 → 重打包 */
+    private void editExternal(File zipFile) {
+        new Thread(() -> {
+            try {
+                File tmp = new File(getCacheDir(), "edit_external_" + System.currentTimeMillis());
+                delete(tmp);
+                tmp.mkdirs();
+                PopupPackage.unzipTolerant(zipFile, tmp);
+                List<File> texts = allTextFiles(tmp, new ArrayList<>());
+                runOnUiThread(() -> {
+                    if (texts.isEmpty()) {
+                        snack("该包没有可编辑的文本文件");
+                        return;
+                    }
+                    showExternalTextPicker(zipFile, texts, tmp);
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> snack("解析失败：" + e.getMessage()));
+            }
+        }).start();
+    }
+
+    private void showExternalTextPicker(File zipFile, List<File> texts, File baseDir) {
+        List<String> names = new ArrayList<>();
+        for (File t : texts) {
+            names.add(relPath(baseDir, t));
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("编辑文本文件")
+                .setItems(names.toArray(new String[0]), (d, which) -> {
+                    File target = texts.get(which);
+                    try {
+                        String content = readText(target);
+                        showTextEditor(zipFile, target, baseDir, content);
+                    } catch (Exception e) {
+                        snack("读取失败：" + e.getMessage());
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void showTextEditor(File zipFile, File textFile, File baseDir, String content) {
+        LinearLayout holder = columnNoPad();
+        holder.setPadding(dp(20), dp(8), dp(20), 0);
+        TextView tvPath = new TextView(this);
+        tvPath.setTextSize(12);
+        tvPath.setTextColor(colorAttr(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        tvPath.setText(relPath(baseDir, textFile));
+        holder.addView(tvPath);
+        EditText et = new EditText(this);
+        et.setText(content);
+        et.setMinLines(4);
+        et.setMaxLines(14);
+        et.setGravity(Gravity.TOP);
+        et.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        et.setTextSize(12);
+        et.setTypeface(Typeface.MONOSPACE);
+        holder.addView(et);
+
+        new AlertDialog.Builder(this)
+                .setTitle("编辑文本")
+                .setView(holder)
+                .setPositiveButton("保存并重打包", (d, w) -> {
+                    String newContent = et.getText() == null ? "" : et.getText().toString();
+                    new Thread(() -> {
+                        try {
+                            try (FileOutputStream fo = new FileOutputStream(textFile)) {
+                                fo.write(newContent.getBytes("UTF-8"));
+                            }
+                            File rebuilt = new File(zipFile.getParentFile(),
+                                    zipFile.getName() + ".tmp");
+                            PopupPackage.zipDir(baseDir, rebuilt);
+                            if (!zipFile.delete() || !rebuilt.renameTo(zipFile)) {
+                                throw new IllegalStateException("替换弹窗包文件失败");
+                            }
+                            pkgCache.remove(zipFile);
+                            runOnUiThread(() -> {
+                                snack("已保存并重打包☆");
+                                refreshPopupList();
+                            });
+                        } catch (Exception e) {
+                            String msg = e.getMessage() == null ? e.toString() : e.getMessage();
+                            runOnUiThread(() -> snack("重打包失败：" + msg));
+                        }
+                    }).start();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private List<File> allTextFiles(File dir, List<File> out) {
+        File[] cs = dir.listFiles();
+        if (cs == null) return out;
+        for (File c : cs) {
+            if (c.isDirectory()) allTextFiles(c, out);
+            else if (c.length() > 0 && c.length() <= 1024 * 1024) out.add(c);
+        }
+        return out;
+    }
+
+    private static String relPath(File base, File f) {
+        try {
+            String b = base.getCanonicalPath();
+            String c = f.getCanonicalPath();
+            String rel = c.startsWith(b + File.separator)
+                    ? c.substring(b.length() + 1) : f.getName();
+            return rel;
+        } catch (Exception e) {
+            return f.getName();
+        }
     }
 
     // =========================================================
@@ -781,18 +1264,23 @@ public class MainActivity extends AppCompatActivity {
         MaterialButton btnAutoFill = mdButtonTonal("自动填入上次选择");
         btnAutoFill.setOnClickListener(v -> {
             pressAnim(v);
-            if (lastZipUri == null) {
+            if (lastZip == null || !lastZip.exists()) {
                 snack("还没有选择过弹窗包");
                 return;
             }
-            String[] cm = peekInvoke(lastZipUri);
-            if (cm == null) {
-                snack("解析失败");
-                return;
-            }
-            etClass.setText(cm[0]);
-            etMethod.setText(cm[1]);
-            snack("已填入：" + cm[0] + "#" + cm[1]);
+            new Thread(() -> {
+                PopupPackage p = parsePopupQuietly(lastZip);
+                String[] cm = p == null ? null : p.primaryEntry();
+                runOnUiThread(() -> {
+                    if (cm == null) {
+                        snack("解析失败");
+                        return;
+                    }
+                    etClass.setText(cm[0].replace('/', '.'));
+                    etMethod.setText(cm[1]);
+                    snack("已填入：" + cm[0] + "#" + cm[1]);
+                });
+            }).start();
         });
         inner.addView(btnAutoFill);
 
@@ -823,7 +1311,7 @@ public class MainActivity extends AppCompatActivity {
 
         btnPreview.setOnClickListener(v -> {
             pressAnim(v);
-            if (lastZipUri == null) {
+            if (lastZip == null || !lastZip.exists()) {
                 previewLogger.warn("请先选择弹窗包");
                 snack("请先选择弹窗包");
                 return;
@@ -837,40 +1325,20 @@ public class MainActivity extends AppCompatActivity {
             }
             previewLogger.clear();
             previewLogger.info("开始预览 · " + cls + "#" + mtd);
-            doPreview(lastZipUri, cls, mtd, assetList, previewLogger);
+            doPreview(lastZip, cls, mtd, assetList, previewLogger);
         });
 
         animateInStagger(root);
     }
 
-    /** 解析弹窗包 xymods.txt 的第一条 invoke，返回 [类名, 方法名]。 */
-    @Nullable
-    private String[] peekInvoke(Uri zipUri) {
-        try {
-            File dir = new File(getCacheDir(), "popup_peek");
-            delete(dir);
-            dir.mkdirs();
-            unzip(zipUri, dir);
-            File configFile = new File(dir, "xymods.txt");
-            if (!configFile.exists()) return null;
-            List<String> calls = parseSmaliCalls(readText(configFile));
-            if (calls.isEmpty()) return null;
-            Matcher m = INVOKE_REF.matcher(calls.get(0));
-            if (!m.find()) return null;
-            return new String[]{m.group(1).replace('/', '.'), m.group(2)};
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private void doPreview(Uri zipSrc, String cls, String mtd,
+    private void doPreview(File zipSrc, String cls, String mtd,
                            LinearLayout assetList, LogConsole log) {
         new Thread(() -> {
             try {
                 File dir = new File(getCacheDir(), "popup_preview");
                 delete(dir);
                 dir.mkdirs();
-                unzip(zipSrc, dir);
+                PopupPackage.unzipTolerant(zipSrc, dir);
                 log.ok("弹窗包解压完成");
 
                 File assetsDir = new File(dir, "assets");
@@ -886,16 +1354,29 @@ public class MainActivity extends AppCompatActivity {
                     }
                 });
 
-                File dex = new File(dir, "classes.dex");
-                if (!dex.exists()) throw new IllegalStateException("缺少 classes.dex");
+                // 多 dex 包：全部 dex 以 ":" 拼接交给 DexClassLoader
+                List<File> dexes = new ArrayList<>();
+                File[] cs = dir.listFiles();
+                if (cs != null) {
+                    for (File c : cs) {
+                        if (c.isFile() && c.getName().endsWith(".dex")) dexes.add(c);
+                    }
+                }
+                if (dexes.isEmpty()) throw new IllegalStateException("缺少 classes.dex");
+
+                StringBuilder dexPath = new StringBuilder();
+                for (File d : dexes) {
+                    // Android 10+ 拒绝加载可写路径中的 dex，必须先置为只读
+                    d.setReadable(true, false);
+                    d.setWritable(false, false);
+                    if (dexPath.length() > 0) dexPath.append(':');
+                    dexPath.append(d.getAbsolutePath());
+                }
 
                 File opt = new File(getCacheDir(), "dex_opt");
                 opt.mkdirs();
-                // Android 10+ 拒绝加载可写路径中的 dex，必须先置为只读
-                dex.setReadable(true, false);
-                dex.setWritable(false, false);
                 DexClassLoader loader = new DexClassLoader(
-                        dex.getAbsolutePath(), opt.getAbsolutePath(), null, getClassLoader());
+                        dexPath.toString(), opt.getAbsolutePath(), null, getClassLoader());
                 log.info("DexClassLoader 已创建");
 
                 Class<?> clazz = loader.loadClass(cls);
@@ -1116,7 +1597,79 @@ public class MainActivity extends AppCompatActivity {
         innerKs.addView(btnReset, rlp);
         root.addView(cardKs);
 
-        // 注册机区块
+        // 一机一码注册机区块
+        MaterialCardView cardRsa = mdCardOutlined();
+        LinearLayout innerRsa = columnNoPad();
+        innerRsa.setPadding(dp(20), dp(16), dp(20), dp(16));
+        cardRsa.addView(innerRsa);
+
+        innerRsa.addView(labelInline("一机一码注册机（RSA）"));
+        TextView tvRsaNote = sub("粘贴注入时导出的私钥，输入宿主设备显示的机器码，"
+                + "即可生成对应的激活码。");
+        tvRsaNote.setPadding(0, 0, 0, dp(8));
+        innerRsa.addView(tvRsaNote);
+
+        TextInputLayout tilPriv = new TextInputLayout(this);
+        tilPriv.setHint("RSA 私钥（Base64，注入时导出）");
+        TextInputEditText etPriv = new TextInputEditText(this);
+        etPriv.setInputType(InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        etPriv.setGravity(Gravity.TOP);
+        etPriv.setMinLines(2);
+        etPriv.setMaxLines(6);
+        etPriv.setTextSize(12);
+        etPriv.setTypeface(Typeface.MONOSPACE);
+        tilPriv.addView(etPriv);
+        innerRsa.addView(tilPriv);
+
+        TextInputLayout tilMid = new TextInputLayout(this);
+        tilMid.setHint("机器码（宿主激活框显示）");
+        TextInputEditText etMid = new TextInputEditText(this);
+        etMid.setTypeface(Typeface.MONOSPACE);
+        tilMid.addView(etMid);
+        LinearLayout.LayoutParams mlp = lpMatchWrap();
+        mlp.topMargin = dp(8);
+        innerRsa.addView(tilMid, mlp);
+
+        MaterialButton btnRsaGen = mdButtonFilled("生成激活码");
+        LinearLayout.LayoutParams rg = lpMatchWrap();
+        rg.topMargin = dp(12);
+        innerRsa.addView(btnRsaGen, rg);
+
+        TextView tvRsaOut = new TextView(this);
+        tvRsaOut.setTextSize(14);
+        tvRsaOut.setPadding(0, dp(16), 0, 0);
+        tvRsaOut.setTextColor(colorAttr(com.google.android.material.R.attr.colorPrimary));
+        tvRsaOut.setTextIsSelectable(true);
+        tvRsaOut.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        innerRsa.addView(tvRsaOut);
+        root.addView(cardRsa);
+
+        btnRsaGen.setOnClickListener(v -> {
+            pressAnim(v);
+            String priv = etPriv.getText() == null ? "" : etPriv.getText().toString().trim();
+            String mid = etMid.getText() == null ? "" : etMid.getText().toString().trim();
+            if (priv.isEmpty() || mid.isEmpty()) {
+                snack("请填写私钥与机器码");
+                return;
+            }
+            try {
+                String code = LicenseSmali.signMachineCode(priv, mid);
+                tvRsaOut.setText("激活码：\n" + code);
+                android.content.ClipboardManager cm =
+                        (android.content.ClipboardManager)
+                                getSystemService(Context.CLIPBOARD_SERVICE);
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("activation", code));
+                settingsLogger.ok("激活码已生成并复制：" + code);
+                snack("激活码已生成☆（已复制）");
+            } catch (Exception e) {
+                String msg = e.getMessage() == null ? e.toString() : e.getMessage();
+                settingsLogger.error("生成失败：" + msg);
+                tvRsaOut.setText("生成失败：" + msg);
+            }
+        });
+
+        // 注册机区块（时间窗口令，旧版兼容）
         MaterialCardView cardReg = mdCardOutlined();
         LinearLayout innerReg = columnNoPad();
         innerReg.setPadding(dp(20), dp(16), dp(20), dp(16));
@@ -1202,7 +1755,7 @@ public class MainActivity extends AppCompatActivity {
             try {
                 code = generateCode(secret);
             } catch (Exception ex) {
-                setLogger.error("生成失败：" + ex.getMessage());
+                settingsLogger.error("生成失败：" + ex.getMessage());
                 snack("生成失败：" + ex.getMessage());
                 return;
             }
@@ -1336,26 +1889,10 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private List<String> parseSmaliCalls(String config) {
-        List<String> out = new ArrayList<>();
-        if (config == null) return out;
-        for (String line : config.split("\n")) {
-            String t = line.trim();
-            if (t.startsWith("invoke-")) out.add(t);
-        }
-        return out;
-    }
-
     private String shortUri(Uri uri) {
         if (uri == null) return "null";
         String s = uri.getLastPathSegment();
         return s == null ? uri.toString() : s;
-    }
-
-    private void unzip(Uri uri, File dir) throws Exception {
-        try (InputStream in = getContentResolver().openInputStream(uri)) {
-            ZipSafety.unzip(in, dir);
-        }
     }
 
     private String readText(File f) throws Exception {

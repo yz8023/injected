@@ -38,7 +38,7 @@ public class BuiltinPopups {
         public final String[] smaliFiles;
         public final String pngBase64;
 
-        Def(String name, String[] smaliFiles, String pngBase64) {
+        public Def(String name, String[] smaliFiles, String pngBase64) {
             this.name = name;
             this.smaliFiles = smaliFiles;
             this.pngBase64 = pngBase64;
@@ -60,17 +60,21 @@ public class BuiltinPopups {
         + "    new-instance v0, Landroid/app/AlertDialog$Builder;\n"
         + "    invoke-direct {v0, p0}, Landroid/app/AlertDialog$Builder;-><init>(Landroid/content/Context;)V\n"
         + "\n"
-        + "    const-string v1, \"Injector 内置弹窗\"\n"
+        + "    const-string v1, \"@@TITLE@@\"\n"
         + "    invoke-virtual {v0, v1}, Landroid/app/AlertDialog$Builder;->setTitle(Ljava/lang/CharSequence;)Landroid/app/AlertDialog$Builder;\n"
         + "    move-result-object v0\n"
         + "\n"
-        + "    const-string v1, \"你好！这是由 Injector 注入的测试弹窗。\\n看到我说明注入链路已经完全打通。\"\n"
+        + "    const-string v1, \"@@CONTENT@@\"\n"
         + "    invoke-virtual {v0, v1}, Landroid/app/AlertDialog$Builder;->setMessage(Ljava/lang/CharSequence;)Landroid/app/AlertDialog$Builder;\n"
         + "    move-result-object v0\n"
         + "\n"
-        + "    const-string v1, \"知道了\"\n"
+        + "    const-string v1, \"@@BTN1@@\"\n"
         + "    const/4 v2, 0x0\n"
         + "    invoke-virtual {v0, v1, v2}, Landroid/app/AlertDialog$Builder;->setPositiveButton(Ljava/lang/CharSequence;Landroid/content/DialogInterface$OnClickListener;)Landroid/app/AlertDialog$Builder;\n"
+        + "    move-result-object v0\n"
+        + "\n"
+        + "    const/4 v1, @@CANCELABLE@@\n"
+        + "    invoke-virtual {v0, v1}, Landroid/app/AlertDialog$Builder;->setCancelable(Z)Landroid/app/AlertDialog$Builder;\n"
         + "    move-result-object v0\n"
         + "\n"
         + "    invoke-virtual {v0}, Landroid/app/AlertDialog$Builder;->show()Landroid/app/AlertDialog;\n"
@@ -88,27 +92,31 @@ public class BuiltinPopups {
         + "    new-instance v0, Landroid/app/AlertDialog$Builder;\n"
         + "    invoke-direct {v0, p0}, Landroid/app/AlertDialog$Builder;-><init>(Landroid/content/Context;)V\n"
         + "\n"
-        + "    const-string v1, \"内置多按钮弹窗\"\n"
+        + "    const-string v1, \"@@TITLE@@\"\n"
         + "    invoke-virtual {v0, v1}, Landroid/app/AlertDialog$Builder;->setTitle(Ljava/lang/CharSequence;)Landroid/app/AlertDialog$Builder;\n"
         + "    move-result-object v0\n"
         + "\n"
-        + "    const-string v1, \"三个按钮都未绑定监听器，点击任意按钮自动关闭。\"\n"
+        + "    const-string v1, \"@@CONTENT@@\"\n"
         + "    invoke-virtual {v0, v1}, Landroid/app/AlertDialog$Builder;->setMessage(Ljava/lang/CharSequence;)Landroid/app/AlertDialog$Builder;\n"
         + "    move-result-object v0\n"
         + "\n"
-        + "    const-string v1, \"确定\"\n"
+        + "    const-string v1, \"@@BTN1@@\"\n"
         + "    const/4 v2, 0x0\n"
         + "    invoke-virtual {v0, v1, v2}, Landroid/app/AlertDialog$Builder;->setPositiveButton(Ljava/lang/CharSequence;Landroid/content/DialogInterface$OnClickListener;)Landroid/app/AlertDialog$Builder;\n"
         + "    move-result-object v0\n"
         + "\n"
-        + "    const-string v1, \"取消\"\n"
+        + "    const-string v1, \"@@BTN2@@\"\n"
         + "    const/4 v2, 0x0\n"
         + "    invoke-virtual {v0, v1, v2}, Landroid/app/AlertDialog$Builder;->setNegativeButton(Ljava/lang/CharSequence;Landroid/content/DialogInterface$OnClickListener;)Landroid/app/AlertDialog$Builder;\n"
         + "    move-result-object v0\n"
         + "\n"
-        + "    const-string v1, \"中性\"\n"
+        + "    const-string v1, \"@@BTN3@@\"\n"
         + "    const/4 v2, 0x0\n"
         + "    invoke-virtual {v0, v1, v2}, Landroid/app/AlertDialog$Builder;->setNeutralButton(Ljava/lang/CharSequence;Landroid/content/DialogInterface$OnClickListener;)Landroid/app/AlertDialog$Builder;\n"
+        + "    move-result-object v0\n"
+        + "\n"
+        + "    const/4 v1, @@CANCELABLE@@\n"
+        + "    invoke-virtual {v0, v1}, Landroid/app/AlertDialog$Builder;->setCancelable(Z)Landroid/app/AlertDialog$Builder;\n"
         + "    move-result-object v0\n"
         + "\n"
         + "    invoke-virtual {v0}, Landroid/app/AlertDialog$Builder;->show()Landroid/app/AlertDialog;\n"
@@ -153,7 +161,7 @@ public class BuiltinPopups {
         + "    new-instance v3, Landroid/app/AlertDialog$Builder;\n"
         + "    invoke-direct {v3, p0}, Landroid/app/AlertDialog$Builder;-><init>(Landroid/content/Context;)V\n"
         + "\n"
-        + "    const-string v4, \"内置图片弹窗\"\n"
+        + "    const-string v4, \"@@TITLE@@\"\n"
         + "    invoke-virtual {v3, v4}, Landroid/app/AlertDialog$Builder;->setTitle(Ljava/lang/CharSequence;)Landroid/app/AlertDialog$Builder;\n"
         + "    move-result-object v3\n"
         + "\n"
@@ -166,13 +174,17 @@ public class BuiltinPopups {
         + "    move-result-object v3\n"
         + "\n"
         + "    :cond_noimg\n"
-        + "    const-string v4, \"图片来自弹窗包 assets/xypopups/banner.png。\"\n"
+        + "    const-string v4, \"@@CONTENT@@\"\n"
         + "    invoke-virtual {v3, v4}, Landroid/app/AlertDialog$Builder;->setMessage(Ljava/lang/CharSequence;)Landroid/app/AlertDialog$Builder;\n"
         + "    move-result-object v3\n"
         + "\n"
-        + "    const-string v4, \"知道了\"\n"
+        + "    const-string v4, \"@@BTN1@@\"\n"
         + "    const/4 v5, 0x0\n"
         + "    invoke-virtual {v3, v4, v5}, Landroid/app/AlertDialog$Builder;->setPositiveButton(Ljava/lang/CharSequence;Landroid/content/DialogInterface$OnClickListener;)Landroid/app/AlertDialog$Builder;\n"
+        + "    move-result-object v3\n"
+        + "\n"
+        + "    const/4 v4, @@CANCELABLE@@\n"
+        + "    invoke-virtual {v3, v4}, Landroid/app/AlertDialog$Builder;->setCancelable(Z)Landroid/app/AlertDialog$Builder;\n"
         + "    move-result-object v3\n"
         + "\n"
         + "    invoke-virtual {v3}, Landroid/app/AlertDialog$Builder;->show()Landroid/app/AlertDialog;\n"
@@ -190,13 +202,13 @@ public class BuiltinPopups {
         + "    new-instance v0, Landroid/widget/EditText;\n"
         + "    invoke-direct {v0, p0}, Landroid/widget/EditText;-><init>(Landroid/content/Context;)V\n"
         + "\n"
-        + "    const-string v1, \"在这里输入点什么…\"\n"
+        + "    const-string v1, \"@@HINT@@\"\n"
         + "    invoke-virtual {v0, v1}, Landroid/widget/EditText;->setHint(Ljava/lang/CharSequence;)V\n"
         + "\n"
         + "    new-instance v1, Landroid/app/AlertDialog$Builder;\n"
         + "    invoke-direct {v1, p0}, Landroid/app/AlertDialog$Builder;-><init>(Landroid/content/Context;)V\n"
         + "\n"
-        + "    const-string v2, \"内置输入弹窗\"\n"
+        + "    const-string v2, \"@@TITLE@@\"\n"
         + "    invoke-virtual {v1, v2}, Landroid/app/AlertDialog$Builder;->setTitle(Ljava/lang/CharSequence;)Landroid/app/AlertDialog$Builder;\n"
         + "    move-result-object v1\n"
         + "\n"
@@ -206,8 +218,12 @@ public class BuiltinPopups {
         + "    new-instance v2, Lcom/example/injector/popup/InputPopup$1;\n"
         + "    invoke-direct {v2, v0, p0}, Lcom/example/injector/popup/InputPopup$1;-><init>(Landroid/widget/EditText;Landroid/content/Context;)V\n"
         + "\n"
-        + "    const-string v3, \"读取输入\"\n"
+        + "    const-string v3, \"@@BTN1@@\"\n"
         + "    invoke-virtual {v1, v3, v2}, Landroid/app/AlertDialog$Builder;->setPositiveButton(Ljava/lang/CharSequence;Landroid/content/DialogInterface$OnClickListener;)Landroid/app/AlertDialog$Builder;\n"
+        + "    move-result-object v1\n"
+        + "\n"
+        + "    const/4 v3, @@CANCELABLE@@\n"
+        + "    invoke-virtual {v1, v3}, Landroid/app/AlertDialog$Builder;->setCancelable(Z)Landroid/app/AlertDialog$Builder;\n"
         + "    move-result-object v1\n"
         + "\n"
         + "    invoke-virtual {v1}, Landroid/app/AlertDialog$Builder;->show()Landroid/app/AlertDialog;\n"
@@ -248,7 +264,7 @@ public class BuiltinPopups {
         + "    new-instance v1, Ljava/lang/StringBuilder;\n"
         + "    invoke-direct {v1}, Ljava/lang/StringBuilder;-><init>()V\n"
         + "\n"
-        + "    const-string v2, \"你输入了：\"\n"
+        + "    const-string v2, \"@@ECHO@@\"\n"
         + "    invoke-virtual {v1, v2}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;\n"
         + "    move-result-object v1\n"
         + "\n"
@@ -279,25 +295,83 @@ public class BuiltinPopups {
         + "    new-instance v0, Landroid/app/AlertDialog$Builder;\n"
         + "    invoke-direct {v0, p0}, Landroid/app/AlertDialog$Builder;-><init>(Landroid/content/Context;)V\n"
         + "\n"
-        + "    const-string v1, \"发现新版本 v2.0\"\n"
+        + "    const-string v1, \"@@TITLE@@\"\n"
         + "    invoke-virtual {v0, v1}, Landroid/app/AlertDialog$Builder;->setTitle(Ljava/lang/CharSequence;)Landroid/app/AlertDialog$Builder;\n"
         + "    move-result-object v0\n"
         + "\n"
-        + "    const-string v1, \"修复了已知问题，优化了使用体验。\\n现在要更新吗？\"\n"
+        + "    const-string v1, \"@@CONTENT@@\"\n"
         + "    invoke-virtual {v0, v1}, Landroid/app/AlertDialog$Builder;->setMessage(Ljava/lang/CharSequence;)Landroid/app/AlertDialog$Builder;\n"
         + "    move-result-object v0\n"
         + "\n"
-        + "    const-string v1, \"立即更新\"\n"
-        + "    const/4 v2, 0x0\n"
+        + "    const-string v1, \"@@BTN1@@\"\n"
+        + "@@BTN1_LISTENER@@\n"
         + "    invoke-virtual {v0, v1, v2}, Landroid/app/AlertDialog$Builder;->setPositiveButton(Ljava/lang/CharSequence;Landroid/content/DialogInterface$OnClickListener;)Landroid/app/AlertDialog$Builder;\n"
         + "    move-result-object v0\n"
         + "\n"
-        + "    const-string v1, \"稍后再说\"\n"
+        + "    const-string v1, \"@@BTN2@@\"\n"
         + "    const/4 v2, 0x0\n"
         + "    invoke-virtual {v0, v1, v2}, Landroid/app/AlertDialog$Builder;->setNegativeButton(Ljava/lang/CharSequence;Landroid/content/DialogInterface$OnClickListener;)Landroid/app/AlertDialog$Builder;\n"
         + "    move-result-object v0\n"
         + "\n"
+        + "    const/4 v1, @@CANCELABLE@@\n"
+        + "    invoke-virtual {v0, v1}, Landroid/app/AlertDialog$Builder;->setCancelable(Z)Landroid/app/AlertDialog$Builder;\n"
+        + "    move-result-object v0\n"
+        + "\n"
         + "    invoke-virtual {v0}, Landroid/app/AlertDialog$Builder;->show()Landroid/app/AlertDialog;\n"
+        + "\n"
+        + "    return-void\n"
+        + ".end method\n";
+
+    private static final String S_UPDATE_LISTENER =
+        ".class public Lcom/example/injector/popup/UpdatePopup$1;\n"
+        + ".super Ljava/lang/Object;\n"
+        + ".implements Landroid/content/DialogInterface$OnClickListener;\n"
+        + "\n"
+        + ".field private final val$ctx:Landroid/content/Context;\n"
+        + ".field private final val$url:Ljava/lang/String;\n"
+        + "\n"
+        + ".method public constructor <init>(Landroid/content/Context;Ljava/lang/String;)V\n"
+        + "    .registers 3\n"
+        + "\n"
+        + "    invoke-direct {p0}, Ljava/lang/Object;-><init>()V\n"
+        + "\n"
+        + "    iput-object p1, p0, Lcom/example/injector/popup/UpdatePopup$1;->val$ctx:Landroid/content/Context;\n"
+        + "    iput-object p2, p0, Lcom/example/injector/popup/UpdatePopup$1;->val$url:Ljava/lang/String;\n"
+        + "\n"
+        + "    return-void\n"
+        + ".end method\n"
+        + "\n"
+        + ".method public onClick(Landroid/content/DialogInterface;I)V\n"
+        + "    .locals 4\n"
+        + "\n"
+        + "    :try_start_0\n"
+        + "    new-instance v0, Landroid/content/Intent;\n"
+        + "    const-string v1, \"android.intent.action.VIEW\"\n"
+        + "    invoke-direct {v0, v1}, Landroid/content/Intent;-><init>(Ljava/lang/String;)V\n"
+        + "\n"
+        + "    iget-object v1, p0, Lcom/example/injector/popup/UpdatePopup$1;->val$url:Ljava/lang/String;\n"
+        + "    invoke-static {v1}, Landroid/net/Uri;->parse(Ljava/lang/String;)Landroid/net/Uri;\n"
+        + "    move-result-object v1\n"
+        + "\n"
+        + "    invoke-virtual {v0, v1}, Landroid/content/Intent;->setData(Landroid/net/Uri;)Landroid/content/Intent;\n"
+        + "\n"
+        + "    iget-object v1, p0, Lcom/example/injector/popup/UpdatePopup$1;->val$ctx:Landroid/content/Context;\n"
+        + "    invoke-virtual {v1, v0}, Landroid/content/Context;->startActivity(Landroid/content/Intent;)V\n"
+        + "    :try_end_0\n"
+        + "    .catch Ljava/lang/Throwable; {:try_start_0 .. :try_end_0} :catch_0\n"
+        + "\n"
+        + "    return-void\n"
+        + "\n"
+        + "    :catch_0\n"
+        + "    move-exception v0\n"
+        + "\n"
+        + "    iget-object v1, p0, Lcom/example/injector/popup/UpdatePopup$1;->val$ctx:Landroid/content/Context;\n"
+        + "    const-string v2, \"\\u6253\\u5f00\\u94fe\\u63a5\\u5931\\u8d25\"\n"
+        + "    const/4 v3, 0x1\n"
+        + "    invoke-static {v1, v2, v3}, Landroid/widget/Toast;->makeText(Landroid/content/Context;Ljava/lang/CharSequence;I)Landroid/widget/Toast;\n"
+        + "    move-result-object v1\n"
+        + "\n"
+        + "    invoke-virtual {v1}, Landroid/widget/Toast;->show()V\n"
         + "\n"
         + "    return-void\n"
         + ".end method\n";
@@ -345,9 +419,9 @@ public class BuiltinPopups {
         + "    new-instance v1, Landroid/widget/TextView;\n"
         + "    invoke-direct {v1, p0}, Landroid/widget/TextView;-><init>(Landroid/content/Context;)V\n"
         + "\n"
-        + "    const-string v2, \"\\u2606\\u4eca\\u65e5\\u516c\\u544a\\u2606\"\n"
+        + "    const-string v2, \"@@TITLE@@\"\n"
         + "    invoke-virtual {v1, v2}, Landroid/widget/TextView;->setText(Ljava/lang/CharSequence;)V\n"
-        + "\n"
+
         + "    const/high16 v2, 0x41c00000\n"
         + "    invoke-virtual {v1, v2}, Landroid/widget/TextView;->setTextSize(F)V\n"
         + "\n"
@@ -359,14 +433,14 @@ public class BuiltinPopups {
         + "    new-instance v1, Landroid/widget/TextView;\n"
         + "    invoke-direct {v1, p0}, Landroid/widget/TextView;-><init>(Landroid/content/Context;)V\n"
         + "\n"
-        + "    const-string v2, \"\\u6b22\\u8fce\\u6765\\u5230\\u6a31\\u82b1\\u5c0f\\u5c4b\\uff5e\\n\\u4eca\\u5929\\u4e5f\\u8981\\u5143\\u6c14\\u6ee1\\u6ee1\\u54e6\\uff01\"\n"
+        + "    const-string v2, \"@@CONTENT@@\"\n"
         + "    invoke-virtual {v1, v2}, Landroid/widget/TextView;->setText(Ljava/lang/CharSequence;)V\n"
         + "\n"
         + "    const/4 v2, -0x1\n"
         + "    invoke-virtual {v1, v2}, Landroid/widget/TextView;->setTextColor(I)V\n"
         + "\n"
         + "    const/16 v3, 0x18\n"
-        + "    invoke-virtual {v1, v3}, Landroid/widget/TextView;->setPadding(IIII)V\n"
+        + "    invoke-virtual {v1, v3, v3, v3, v3}, Landroid/widget/TextView;->setPadding(IIII)V\n"
         + "\n"
         + "    invoke-virtual {v0, v1}, Landroid/widget/LinearLayout;->addView(Landroid/view/View;)V\n"
         + "\n"
@@ -376,9 +450,13 @@ public class BuiltinPopups {
         + "    invoke-virtual {v1, v0}, Landroid/app/AlertDialog$Builder;->setView(Landroid/view/View;)Landroid/app/AlertDialog$Builder;\n"
         + "    move-result-object v1\n"
         + "\n"
-        + "    const-string v2, \"\\u6536\\u4e0b\\u5566\\u2606\"\n"
+        + "    const-string v2, \"@@BTN1@@\"\n"
         + "    const/4 v3, 0x0\n"
         + "    invoke-virtual {v1, v2, v3}, Landroid/app/AlertDialog$Builder;->setPositiveButton(Ljava/lang/CharSequence;Landroid/content/DialogInterface$OnClickListener;)Landroid/app/AlertDialog$Builder;\n"
+        + "    move-result-object v1\n"
+        + "\n"
+        + "    const/4 v2, @@CANCELABLE@@\n"
+        + "    invoke-virtual {v1, v2}, Landroid/app/AlertDialog$Builder;->setCancelable(Z)Landroid/app/AlertDialog$Builder;\n"
         + "    move-result-object v1\n"
         + "\n"
         + "    invoke-virtual {v1}, Landroid/app/AlertDialog$Builder;->show()Landroid/app/AlertDialog;\n"
@@ -416,18 +494,22 @@ public class BuiltinPopups {
         + "    new-instance v1, Landroid/app/AlertDialog$Builder;\n"
         + "    invoke-direct {v1, p0}, Landroid/app/AlertDialog$Builder;-><init>(Landroid/content/Context;)V\n"
         + "\n"
-        + "    const-string v2, \"\\u5012\\u8ba1\\u65f6\\u516c\\u544a\"\n"
+        + "    const-string v2, \"@@TITLE@@\"\n"
         + "    invoke-virtual {v1, v2}, Landroid/app/AlertDialog$Builder;->setTitle(Ljava/lang/CharSequence;)Landroid/app/AlertDialog$Builder;\n"
         + "    move-result-object v1\n"
         + "\n"
         + "    invoke-virtual {v1, v0}, Landroid/app/AlertDialog$Builder;->setView(Landroid/view/View;)Landroid/app/AlertDialog$Builder;\n"
         + "    move-result-object v1\n"
         + "\n"
+        + "    const/4 v2, @@CANCELABLE@@\n"
+        + "    invoke-virtual {v1, v2}, Landroid/app/AlertDialog$Builder;->setCancelable(Z)Landroid/app/AlertDialog$Builder;\n"
+        + "    move-result-object v1\n"
+        + "\n"
         + "    invoke-virtual {v1}, Landroid/app/AlertDialog$Builder;->show()Landroid/app/AlertDialog;\n"
         + "    move-result-object v8\n"
         + "\n"
         + "    new-instance v3, Lcom/example/injector/popup/CountdownPopup$1;\n"
-        + "    const-wide/16 v4, 0x2710\n"
+        + "@@CD_LINE@@\n"
         + "    const-wide/16 v6, 0x3e8\n"
         + "    invoke-direct/range {v3 .. v9}, Lcom/example/injector/popup/CountdownPopup$1;-><init>(JJLandroid/app/AlertDialog;Landroid/widget/TextView;)V\n"
         + "\n"
@@ -513,7 +595,7 @@ public class BuiltinPopups {
         + "    new-instance v11, Landroid/widget/TextView;\n"
         + "    invoke-direct {v11, p0}, Landroid/widget/TextView;-><init>(Landroid/content/Context;)V\n"
         + "\n"
-        + "    const-string v1, \"\\u52aa\\u529b\\u52a0\\u8f7d\\u4e2d\\u2026\"\n"
+        + "    const-string v1, \"@@TEXT@@\"\n"
         + "    invoke-virtual {v11, v1}, Landroid/widget/TextView;->setText(Ljava/lang/CharSequence;)V\n"
         + "\n"
         + "    new-instance v0, Landroid/widget/LinearLayout;\n"
@@ -531,18 +613,22 @@ public class BuiltinPopups {
         + "    new-instance v1, Landroid/app/AlertDialog$Builder;\n"
         + "    invoke-direct {v1, p0}, Landroid/app/AlertDialog$Builder;-><init>(Landroid/content/Context;)V\n"
         + "\n"
-        + "    const-string v2, \"\\u8bf7\\u7a0d\\u5019\"\n"
+        + "    const-string v2, \"@@TITLE@@\"\n"
         + "    invoke-virtual {v1, v2}, Landroid/app/AlertDialog$Builder;->setTitle(Ljava/lang/CharSequence;)Landroid/app/AlertDialog$Builder;\n"
         + "    move-result-object v1\n"
         + "\n"
         + "    invoke-virtual {v1, v0}, Landroid/app/AlertDialog$Builder;->setView(Landroid/view/View;)Landroid/app/AlertDialog$Builder;\n"
         + "    move-result-object v1\n"
         + "\n"
+        + "    const/4 v2, @@CANCELABLE@@\n"
+        + "    invoke-virtual {v1, v2}, Landroid/app/AlertDialog$Builder;->setCancelable(Z)Landroid/app/AlertDialog$Builder;\n"
+        + "    move-result-object v1\n"
+        + "\n"
         + "    invoke-virtual {v1}, Landroid/app/AlertDialog$Builder;->show()Landroid/app/AlertDialog;\n"
         + "    move-result-object v9\n"
         + "\n"
         + "    new-instance v4, Lcom/example/injector/popup/ProgressPopup$1;\n"
-        + "    const-wide/16 v5, 0xbb8\n"
+        + "@@DUR_LINE@@\n"
         + "    const-wide/16 v7, 0x64\n"
         + "    invoke-direct/range {v4 .. v11}, Lcom/example/injector/popup/ProgressPopup$1;-><init>(JJLandroid/app/AlertDialog;Landroid/widget/ProgressBar;Landroid/widget/TextView;)V\n"
         + "\n"
@@ -574,9 +660,11 @@ public class BuiltinPopups {
         + ".method public onTick(J)V\n"
         + "    .locals 4\n"
         + "\n"
-        + "    const-wide/16 v0, 0xbb8\n"
+        + "@@DUR_LINE0@@\n"
         + "    sub-long v0, v0, p1\n"
-        + "    const-wide/16 v2, 0x2c\n"
+        + "    const-wide/16 v2, 0x64\n"
+        + "    mul-long v0, v0, v2\n"
+        + "@@DUR_LINE2@@\n"
         + "    div-long v0, v0, v2\n"
         + "    long-to-int v0, v0\n"
         + "\n"
@@ -603,7 +691,7 @@ public class BuiltinPopups {
             new Def("多按钮弹窗", new String[]{S_MULTI}, null),
             new Def("图片弹窗", new String[]{S_IMAGE}, BANNER_B64),
             new Def("输入弹窗", new String[]{S_INPUT, S_INPUT_LISTENER}, null),
-            new Def("更新提示", new String[]{S_UPDATE}, null),
+            new Def("更新提示", new String[]{S_UPDATE, S_UPDATE_LISTENER}, null),
             new Def("二次元公告", new String[]{S_ANIME}, null),
             new Def("倒计时公告", new String[]{S_COUNTDOWN, S_COUNTDOWN_TIMER}, null),
             new Def("进度条弹窗", new String[]{S_PROGRESS, S_PROGRESS_TIMER}, null),
@@ -618,19 +706,30 @@ public class BuiltinPopups {
     }
 
     /**
-     * 汇编并打包内置弹窗。
+     * 汇编并打包内置弹窗（使用默认参数）。
      *
      * @return 生成的弹窗包 zip 文件（cacheDir/builtin_popups/<name>.zip）
      */
     public static File build(Context ctx, String name, LogFn log) throws Exception {
+        return build(ctx, name, log, null);
+    }
+
+    /**
+     * 汇编并打包内置弹窗（应用参数覆盖）。
+     * zip 内附带 popup.conf 供后续编辑。
+     */
+    public static File build(Context ctx, String name, LogFn log,
+                             java.util.Map<String, String> cfgOverride) throws Exception {
         Def def = find(name);
         if (def == null) throw new IllegalStateException("未知的内置弹窗：" + name);
+        java.util.Map<String, String> cfg = PopupConfig.withDefaults(name, cfgOverride);
 
         File buildRoot = new File(ctx.getCacheDir(), "builtin_build/" + safe(name));
         File smaliDir = new File(buildRoot, "smali");
         delete(smaliDir);
         smaliDir.mkdirs();
         for (String src : def.smaliFiles) {
+            src = applyConfig(name, src, cfg);
             File f = new File(smaliDir, classFilePath(src));
             File parent = f.getParentFile();
             if (parent != null) parent.mkdirs();
@@ -671,6 +770,7 @@ public class BuiltinPopups {
         try {
             putFile(zos, "classes.dex", dexFile);
             putText(zos, "xymods.txt", invokeLine + "\n");
+            putText(zos, "popup.conf", PopupConfig.toConf(name, cfg));
             if (def.pngBase64 != null && def.pngBase64.length() > 0) {
                 byte[] png = Base64.decode(def.pngBase64, Base64.DEFAULT);
                 zos.putNextEntry(new ZipEntry("assets/xypopups/banner.png"));
@@ -693,7 +793,87 @@ public class BuiltinPopups {
         return zipFile;
     }
 
-    private static Def find(String name) {
+    // ============================ 参数替换 ============================
+
+    /** 将模板占位符替换为参数值 */
+    public static String applyConfig(String builtinName, String smali, java.util.Map<String, String> cfg) {
+        String out = smali;
+        // 文本类占位符
+        for (java.util.Map.Entry<String, String> e : cfg.entrySet()) {
+            String key = e.getKey().toUpperCase(java.util.Locale.ROOT);
+            if (key.equals("CANCELABLE") || key.equals("SECONDS") || key.equals("MS")
+                    || key.equals("UPDATE_URL")) continue;
+            String token = "@@" + key + "@@";
+            if (out.contains(token)) {
+                out = out.replace(token, escapeSmali(e.getValue() == null ? "" : e.getValue()));
+            }
+        }
+        // 可点击外部关闭
+        boolean cancelable = !"0".equals(cfg.get("cancelable"));
+        out = out.replace("@@CANCELABLE@@", cancelable ? "0x1" : "0x0");
+        // 更新提示：主按钮监听器（URL 非空时绑定打开浏览器）
+        if (out.contains("@@BTN1_LISTENER@@")) {
+            String url = cfg.get("update_url");
+            if (url == null || url.trim().isEmpty()) {
+                out = out.replace("@@BTN1_LISTENER@@", "    const/4 v2, 0x0");
+            } else {
+                out = out.replace("@@BTN1_LISTENER@@",
+                        "    const-string v1, \"" + escapeSmali(url.trim()) + "\"\n"
+                        + "    new-instance v2, Lcom/example/injector/popup/UpdatePopup$1;\n"
+                        + "    invoke-direct {v2, p0, v1}, Lcom/example/injector/popup/UpdatePopup$1;-><init>(Landroid/content/Context;Ljava/lang/String;)V");
+            }
+        }
+        // 倒计时公告：总时长（秒 → 毫秒）
+        if (out.contains("@@CD_LINE@@")) {
+            long ms = parseLong(cfg.get("seconds"), 10L) * 1000L;
+            out = out.replace("@@CD_LINE@@", wideLine("v4", ms));
+        }
+        // 进度条弹窗：加载时长（show 主文件 v5，onTick 里 v0/v2）
+        if (out.contains("@@DUR_LINE@@") || out.contains("@@DUR_LINE0@@") || out.contains("@@DUR_LINE2@@")) {
+            long ms = parseLong(cfg.get("ms"), 3000L);
+            out = out.replace("@@DUR_LINE@@", wideLine("v5", ms));
+            out = out.replace("@@DUR_LINE0@@", wideLine("v0", ms));
+            out = out.replace("@@DUR_LINE2@@", wideLine("v2", ms));
+        }
+        return out;
+    }
+
+    private static long parseLong(String s, long def) {
+        try {
+            return Long.parseLong(s == null ? "" : s.trim());
+        } catch (NumberFormatException e) {
+            return def;
+        }
+    }
+
+    static String escapeSmali(String s) {
+        if (s == null) s = "";
+        StringBuilder sb = new StringBuilder(s.length() + 8);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '\\': sb.append("\\\\"); break;
+                case '"': sb.append("\\\""); break;
+                case '\n': sb.append("\\n"); break;
+                case '\r': sb.append("\\r"); break;
+                case '\t': sb.append("\\t"); break;
+                default: sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    private static String wideLine(String reg, long v) {
+        if (v >= Short.MIN_VALUE && v <= Short.MAX_VALUE) {
+            return "    const-wide/16 " + reg + ", 0x" + Long.toHexString(v);
+        }
+        if (v >= Integer.MIN_VALUE && v <= Integer.MAX_VALUE) {
+            return "    const-wide/32 " + reg + ", 0x" + Long.toHexString(v);
+        }
+        return "    const-wide " + reg + ", 0x" + Long.toHexString(v) + "L";
+    }
+
+    public static Def find(String name) {
         for (Def d : ALL) {
             if (d.name.equals(name)) return d;
         }
