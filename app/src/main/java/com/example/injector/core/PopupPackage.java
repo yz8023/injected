@@ -64,14 +64,18 @@ public final class PopupPackage {
         return !dexFiles.isEmpty() && !snippets.isEmpty();
     }
 
-    /** 首个调用点的 类#方法，用于 UI 自动填充；无则返回 null */
+    /** 首个调用点的 类#方法，用于 UI 自动填充；类名为点分 Java 名（已剥离 L 前缀与 ; 后缀）；无则返回 null */
     public String[] primaryEntry() {
         for (List<String> sn : snippets) {
             for (String line : sn) {
                 if (INVOKE_LINE.matcher(line).find()) {
                     Matcher m = ENTRY_REF.matcher(line);
                     if (m.find()) {
-                        return new String[]{m.group(1).replace('/', '.'), m.group(2)};
+                        String cls = m.group(1);
+                        if (cls.startsWith("L") && cls.endsWith(";")) {
+                            cls = cls.substring(1, cls.length() - 1);
+                        }
+                        return new String[]{cls.replace('/', '.'), m.group(2)};
                     }
                 }
             }

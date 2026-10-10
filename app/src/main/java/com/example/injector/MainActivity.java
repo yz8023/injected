@@ -121,7 +121,6 @@ public class MainActivity extends AppCompatActivity {
     private Uri ksUri;
 
     private LogConsole logger;
-    private LogConsole previewLogger;
     private LogConsole settingsLogger;
     private TextView tvZipCount;
     private LinearLayout popupListContainer;
@@ -139,15 +138,13 @@ public class MainActivity extends AppCompatActivity {
 
         bottomNav.getMenu().clear();
         bottomNav.getMenu().add(0, 1, 0, "出击").setIcon(android.R.drawable.ic_menu_send);
-        bottomNav.getMenu().add(0, 2, 1, "预览").setIcon(android.R.drawable.ic_menu_view);
-        bottomNav.getMenu().add(0, 3, 2, "公告").setIcon(android.R.drawable.ic_menu_info_details);
-        bottomNav.getMenu().add(0, 4, 3, "设置").setIcon(android.R.drawable.ic_menu_preferences);
+        bottomNav.getMenu().add(0, 3, 1, "公告").setIcon(android.R.drawable.ic_menu_info_details);
+        bottomNav.getMenu().add(0, 4, 2, "设置").setIcon(android.R.drawable.ic_menu_preferences);
 
         bottomNav.setOnItemSelectedListener(item -> {
             animateBottomIcon();
             switch (item.getItemId()) {
                 case 1: showInjectPage(); return true;
-                case 2: showPreviewPage(); return true;
                 case 3: showNoticePage(); return true;
                 case 4: showSettingsPage(); return true;
             }
@@ -227,8 +224,8 @@ public class MainActivity extends AppCompatActivity {
                     if (logger != null && added > 0) {
                         logger.ok("已加入 " + added + " 个弹窗包 · 共 " + popupFiles.size() + " 个");
                     }
-                    if (!failed.isEmpty() && previewLogger != null) {
-                        previewLogger.warn("以下弹窗包无法读取："
+                    if (!failed.isEmpty() && logger != null) {
+                        logger.warn("以下弹窗包无法读取："
                                 + TextUtils.join("、", failed));
                     }
                     refreshZipCount();
@@ -241,6 +238,9 @@ public class MainActivity extends AppCompatActivity {
                         promptKeystoreImport();
                     }
                 });
+
+        // 清理上次会话遗留的弹窗解析缓存（每次解析都会新建 pkg_<ts> 子目录）
+        delete(new File(getCacheDir(), "pkg_parse"));
 
         bottomNav.setSelectedItemId(1);
         restoreMemory();
@@ -561,7 +561,7 @@ public class MainActivity extends AppCompatActivity {
     private String entryText(PopupPackage p) {
         StringBuilder sb = new StringBuilder();
         String[] e = p.primaryEntry();
-        sb.append("入口：").append(e == null ? "未识别" : e[0].replace('/', '.') + "#" + e[1]);
+        sb.append("入口：").append(e == null ? "未识别" : e[0] + "#" + e[1]);
         sb.append(" · 片段 ").append(p.snippets.size()).append(" 个");
         if (!p.warnings.isEmpty()) {
             sb.append(" · ").append(p.warnings.get(0));
@@ -610,7 +610,8 @@ public class MainActivity extends AppCompatActivity {
 
                 updateUi(progress, stage, 15, "解析 AndroidManifest");
                 logger.info("解析 AndroidManifest.xml…");
-                List<String> launchers = parseManifest(apkCopy);
+                ManifestInfo minfo = parseManifest(apkCopy);
+                List<String> launchers = minfo.launcherTargets;
                 if (launchers.isEmpty()) throw new IllegalStateException("没找到启动器 Activity");
                 logger.ok("找到 " + launchers.size() + " 个启动类");
 
@@ -730,7 +731,7 @@ public class MainActivity extends AppCompatActivity {
                 logger.ok("注入完成☆ 耗时 " + cost + " ms");
                 logger.ok("输出：" + outApk.getAbsolutePath());
                 if (licenseOn && licensePriv != null) {
-                    exportLicenseKey(licensePriv, selectedActivity);
+                    exportLicenseKey(licensePriv, minfo.packageName);
                 }
                 runOnUiThread(() -> snack("出击成功☆" + outApk.getAbsolutePath()));
 
@@ -748,13 +749,16 @@ public class MainActivity extends AppCompatActivity {
         }).start();
     }
 
-    /** 注入完成后导出一机一码私钥（展示 + 保存副本） */
-    private void exportLicenseKey(String privB64, String hostClass) {
+    /** 注入完成后导出一机一码私钥（展示 + 按 包名_注入时间 保存副本） */
+    private void exportLicenseKey(String privB64, String hostPackage) {
         String machineNote = "每个 APK 独立密钥对。宿主设备首次启动会显示机器码，\n"
-                + "将机器码和下面的私钥填入「设置 → 一机一码注册机」即可生成激活码。";
+                + "将机器码和下面的私钥填入「设置 → 一机一码注册机」即可生成激活码，\n"
+                + "也可在注册机中直接选择下方已保存的私钥。";
+        String safeName = hostPackage == null || hostPackage.trim().isEmpty()
+                ? "app" : hostPackage.trim().replaceAll("[^\\w.\\-]", "_");
         File dir = new File(getFilesDir(), "license_keys");
         dir.mkdirs();
-        File keyFile = new File(dir, "license_"
+        File keyFile = new File(dir, safeName + "_"
                 + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT)
                         .format(new Date()) + ".key");
         try (FileOutputStream fo = new FileOutputStream(keyFile)) {
@@ -802,7 +806,43 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private List<String> parseManifest(File apk) throws Exception {
+    /** 从本地保存的私钥列表中选择并填入注册机（文件名 = 包名_注入时间） */
+    private void pickSavedLicenseKey(TextInputEditText target) {
+        File dir = new File(getFilesDir(), "license_keys");
+        File[] keys = dir.listFiles((d, n) -> n.endsWith(".key"));
+        if (keys == null || keys.length == 0) {
+            snack("还没有保存过私钥（出击开启一机一码后自动保存）");
+            return;
+        }
+        java.util.Arrays.sort(keys, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+        String[] names = new String[keys.length];
+        for (int i = 0; i < keys.length; i++) {
+            String n = keys[i].getName();
+            names[i] = n.endsWith(".key") ? n.substring(0, n.length() - 4) : n;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("选择私钥（包名_注入时间）")
+                .setItems(names, (d, w) -> {
+                    StringBuilder sb = new StringBuilder();
+                    try (java.io.BufferedReader r = new java.io.BufferedReader(
+                            new java.io.FileReader(keys[w]))) {
+                        String ln;
+                        while ((ln = r.readLine()) != null) sb.append(ln.trim());
+                    } catch (Exception e) {
+                        snack("读取失败：" + e.getMessage());
+                        return;
+                    }
+                    target.setText(sb.toString());
+                    if (settingsLogger != null) {
+                        settingsLogger.ok("已载入私钥：" + names[w]);
+                    }
+                    snack("已载入：" + names[w]);
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private ManifestInfo parseManifest(File apk) throws Exception {
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         try (ZipFile zf = new ZipFile(apk)) {
             ZipEntry e = zf.getEntry("AndroidManifest.xml");
@@ -816,7 +856,7 @@ public class MainActivity extends AppCompatActivity {
 
         ManifestInfo info = new AxmlParser(bos.toByteArray()).parse();
         logger.info("宿主包名：" + info.packageName);
-        return info.launcherTargets;
+        return info;
     }
 
     private File findDexContainingClass(File apk, String className, File workDir) throws Exception {
@@ -912,21 +952,48 @@ public class MainActivity extends AppCompatActivity {
         if (zipFile == null || !zipFile.exists()) return;
         new Thread(() -> {
             try {
-                File dir = new File(getCacheDir(), "popup_inline_preview");
-                delete(dir);
-                dir.mkdirs();
-                PopupPackage.unzipTolerant(zipFile, dir);
+                List<File> dexes;
+                String cls, mtd;
 
                 PopupPackage p = parsePopupQuietly(zipFile);
-                if (p == null) throw new IllegalStateException("未识别出弹窗内容");
-                String[] entry = p.primaryEntry();
-                if (entry == null) throw new IllegalStateException("未识别出调用入口");
-                String cls = entry[0].replace('/', '.');
-                String mtd = entry[1];
+                if (p != null && !p.dexFiles.isEmpty()) {
+                    String[] entry = p.primaryEntry();
+                    if (entry == null) entry = scanDexForEntry(p.dexFiles);
+                    if (entry == null) {
+                        throw new IllegalStateException(
+                                "未识别出调用入口（包内无 show(Context) 形式的静态方法）");
+                    }
+                    cls = entry[0];
+                    mtd = entry[1];
+                    dexes = p.dexFiles;
+                } else {
+                    // 常规解析失败（非标包）：宽容解压后直接扫 dex 兜底
+                    File dir = new File(getCacheDir(), "popup_inline_preview");
+                    delete(dir);
+                    dir.mkdirs();
+                    PopupPackage.unzipTolerant(zipFile, dir);
+                    dexes = new ArrayList<>();
+                    File[] cs = dir.listFiles();
+                    if (cs != null) {
+                        for (File c : cs) {
+                            if (c.isFile() && c.getName().endsWith(".dex")) dexes.add(c);
+                        }
+                    }
+                    if (dexes.isEmpty()) {
+                        throw new IllegalStateException("未识别出弹窗内容（包内没有可用的 dex）");
+                    }
+                    String[] entry = scanDexForEntry(dexes);
+                    if (entry == null) {
+                        throw new IllegalStateException(
+                                "未识别出弹窗内容（非标包且无 show(Context) 形式的静态方法）");
+                    }
+                    cls = entry[0];
+                    mtd = entry[1];
+                }
 
                 // 多 dex 包：全部 dex 以 ":" 拼接交给 DexClassLoader
                 StringBuilder dexPath = new StringBuilder();
-                for (File d : p.dexFiles) {
+                for (File d : dexes) {
                     d.setReadable(true, false);
                     d.setWritable(false, false);
                     if (dexPath.length() > 0) dexPath.append(':');
@@ -958,6 +1025,40 @@ public class MainActivity extends AppCompatActivity {
                 if (logger != null) logger.warn("即时预览跳过：" + msg);
             }
         }).start();
+    }
+
+    /** 从弹窗包 dex 中扫描可作为预览入口的方法：(Context)V 或 (Activity)V 的 public static 方法 */
+    private String[] scanDexForEntry(List<File> dexes) {
+        for (File dex : dexes) {
+            try (FileInputStream in = new FileInputStream(dex)) {
+                org.jf.dexlib2.dexbacked.DexBackedDexFile df =
+                        org.jf.dexlib2.dexbacked.DexBackedDexFile.fromInputStream(
+                                org.jf.dexlib2.Opcodes.getDefault(), in);
+                for (org.jf.dexlib2.iface.ClassDef cd : df.getClasses()) {
+                    for (org.jf.dexlib2.iface.Method m : cd.getMethods()) {
+                        int flags = m.getAccessFlags();
+                        if ((flags & org.jf.dexlib2.AccessFlags.STATIC.getValue()) == 0) continue;
+                        if ((flags & org.jf.dexlib2.AccessFlags.PUBLIC.getValue()) == 0) continue;
+                        if (!"V".equals(m.getReturnType())) continue;
+                        int argc = 0;
+                        String p0 = null;
+                        for (CharSequence pt : m.getParameterTypes()) {
+                            if (argc == 0) p0 = pt.toString();
+                            argc++;
+                        }
+                        if (argc != 1) continue;
+                        if (!"Landroid/content/Context;".equals(p0)
+                                && !"Landroid/app/Activity;".equals(p0)) continue;
+                        String type = cd.getType();
+                        if (type.startsWith("L") && type.endsWith(";")) {
+                            type = type.substring(1, type.length() - 1);
+                        }
+                        return new String[]{type.replace('/', '.'), m.getName()};
+                    }
+                }
+            } catch (Throwable ignored) {}
+        }
+        return null;
     }
 
     private void useBuiltinPopupMulti(LogConsole log) {
@@ -1220,230 +1321,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // =========================================================
-    //                          预览页
-    // =========================================================
-    private void showPreviewPage() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-
-        LinearLayout root = column();
-        scroll.addView(root, lpMatchWrap());
-        content.removeAllViews();
-        content.addView(scroll, lpMatchMatch());
-
-        LinearLayout header = columnNoPad();
-        header.addView(h1("弹窗预览"));
-        header.addView(sub("选弹窗包，填入口类与方法，实时预览（含 assets 图片）"));
-        root.addView(header);
-
-        MaterialCardView card = mdCardOutlined();
-        LinearLayout inner = columnNoPad();
-        inner.setPadding(dp(20), dp(16), dp(20), dp(16));
-        card.addView(inner);
-
-        TextInputLayout tilClass = new TextInputLayout(this);
-        tilClass.setHint("入口类，如 com.example.popup.Popup");
-        TextInputEditText etClass = new TextInputEditText(this);
-        tilClass.addView(etClass);
-        inner.addView(tilClass);
-
-        TextInputLayout tilMethod = new TextInputLayout(this);
-        tilMethod.setHint("入口方法，如 show");
-        TextInputEditText etMethod = new TextInputEditText(this);
-        tilMethod.addView(etMethod);
-        inner.addView(tilMethod);
-
-        MaterialButton btnZip = mdButtonTonal("选择弹窗包");
-        btnZip.setOnClickListener(v -> { pressAnim(v); pickZip(); });
-        inner.addView(btnZip);
-
-        MaterialButton btnBuiltinPreview = mdButtonTonal("使用内置弹窗");
-        btnBuiltinPreview.setOnClickListener(v -> { pressAnim(v); useBuiltinPopupMulti(previewLogger); });
-        inner.addView(btnBuiltinPreview);
-
-        MaterialButton btnAutoFill = mdButtonTonal("自动填入上次选择");
-        btnAutoFill.setOnClickListener(v -> {
-            pressAnim(v);
-            if (lastZip == null || !lastZip.exists()) {
-                snack("还没有选择过弹窗包");
-                return;
-            }
-            new Thread(() -> {
-                PopupPackage p = parsePopupQuietly(lastZip);
-                String[] cm = p == null ? null : p.primaryEntry();
-                runOnUiThread(() -> {
-                    if (cm == null) {
-                        snack("解析失败");
-                        return;
-                    }
-                    etClass.setText(cm[0].replace('/', '.'));
-                    etMethod.setText(cm[1]);
-                    snack("已填入：" + cm[0] + "#" + cm[1]);
-                });
-            }).start();
-        });
-        inner.addView(btnAutoFill);
-
-        MaterialButton btnPreview = mdButtonFilled("预览弹窗");
-        LinearLayout.LayoutParams lp = lpMatchWrap();
-        lp.topMargin = dp(8);
-        inner.addView(btnPreview, lp);
-
-        root.addView(card);
-
-        TextView tvAssets = new TextView(this);
-        tvAssets.setTextSize(13);
-        tvAssets.setPadding(dp(4), dp(16), dp(4), dp(8));
-        tvAssets.setTextColor(colorAttr(com.google.android.material.R.attr.colorOnSurfaceVariant));
-        tvAssets.setText("assets 资源预览");
-        root.addView(tvAssets);
-
-        LinearLayout assetList = columnNoPad();
-        assetList.setPadding(0, 0, 0, dp(16));
-        root.addView(assetList);
-
-        // 预览页专属日志
-        previewLogger = new LogConsole(this);
-        LinearLayout.LayoutParams pllp = lpMatchWrap();
-        pllp.topMargin = dp(8);
-        root.addView(previewLogger.view(), pllp);
-        previewLogger.info("等待选择弹窗包…");
-
-        btnPreview.setOnClickListener(v -> {
-            pressAnim(v);
-            if (lastZip == null || !lastZip.exists()) {
-                previewLogger.warn("请先选择弹窗包");
-                snack("请先选择弹窗包");
-                return;
-            }
-            String cls = etClass.getText() == null ? "" : etClass.getText().toString().trim();
-            String mtd = etMethod.getText() == null ? "" : etMethod.getText().toString().trim();
-            if (cls.isEmpty() || mtd.isEmpty()) {
-                previewLogger.warn("请填写入口类与方法（可用“自动填入”）");
-                snack("请填写入口类与方法");
-                return;
-            }
-            previewLogger.clear();
-            previewLogger.info("开始预览 · " + cls + "#" + mtd);
-            doPreview(lastZip, cls, mtd, assetList, previewLogger);
-        });
-
-        animateInStagger(root);
-    }
-
-    private void doPreview(File zipSrc, String cls, String mtd,
-                           LinearLayout assetList, LogConsole log) {
-        new Thread(() -> {
-            try {
-                File dir = new File(getCacheDir(), "popup_preview");
-                delete(dir);
-                dir.mkdirs();
-                PopupPackage.unzipTolerant(zipSrc, dir);
-                log.ok("弹窗包解压完成");
-
-                File assetsDir = new File(dir, "assets");
-                runOnUiThread(() -> {
-                    assetList.removeAllViews();
-                    if (assetsDir.exists()) {
-                        int before = assetList.getChildCount();
-                        renderAssets(assetsDir, assetList);
-                        int cnt = assetList.getChildCount() - before;
-                        log.info("加载 assets 图片 " + cnt + " 张");
-                    } else {
-                        log.info("无 assets 目录");
-                    }
-                });
-
-                // 多 dex 包：全部 dex 以 ":" 拼接交给 DexClassLoader
-                List<File> dexes = new ArrayList<>();
-                File[] cs = dir.listFiles();
-                if (cs != null) {
-                    for (File c : cs) {
-                        if (c.isFile() && c.getName().endsWith(".dex")) dexes.add(c);
-                    }
-                }
-                if (dexes.isEmpty()) throw new IllegalStateException("缺少 classes.dex");
-
-                StringBuilder dexPath = new StringBuilder();
-                for (File d : dexes) {
-                    // Android 10+ 拒绝加载可写路径中的 dex，必须先置为只读
-                    d.setReadable(true, false);
-                    d.setWritable(false, false);
-                    if (dexPath.length() > 0) dexPath.append(':');
-                    dexPath.append(d.getAbsolutePath());
-                }
-
-                File opt = new File(getCacheDir(), "dex_opt");
-                opt.mkdirs();
-                DexClassLoader loader = new DexClassLoader(
-                        dexPath.toString(), opt.getAbsolutePath(), null, getClassLoader());
-                log.info("DexClassLoader 已创建");
-
-                Class<?> clazz = loader.loadClass(cls);
-                log.ok("类加载成功：" + clazz.getName());
-
-                java.lang.reflect.Method m = clazz.getMethod(mtd, Context.class);
-                log.info("调用入口：" + mtd + "(Context)");
-
-                final CountDownLatch callLatch = new CountDownLatch(1);
-                final AtomicReference<Exception> callError = new AtomicReference<>(null);
-                runOnUiThread(() -> {
-                    try {
-                        m.invoke(null, MainActivity.this);
-                        log.ok("弹窗已弹出");
-                        snack("弹窗已弹出☆");
-                    } catch (Exception e) {
-                        callError.set(e);
-                    } finally {
-                        callLatch.countDown();
-                    }
-                });
-                boolean finished = callLatch.await(30, TimeUnit.SECONDS);
-                if (!finished) {
-                    throw new IllegalStateException("入口调用超时（30 秒），预览中止");
-                }
-                Exception err = callError.get();
-                if (err != null) throw err;
-
-            } catch (Exception e) {
-                String msg = e.getMessage() == null ? e.toString() : e.getMessage();
-                log.error("预览失败：" + msg);
-                runOnUiThread(() -> snack("预览失败：" + msg));
-            }
-        }).start();
-    }
-
-    private void renderAssets(File dir, LinearLayout parent) {
-        File[] files = dir.listFiles();
-        if (files == null) return;
-        for (File f : files) {
-            if (f.isDirectory()) {
-                renderAssets(f, parent);
-            } else if (isImage(f.getName())) {
-                try (InputStream in = new FileInputStream(f)) {
-                    android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeStream(in);
-                    if (bmp != null) {
-                        android.widget.ImageView iv = new android.widget.ImageView(this);
-                        iv.setImageBitmap(bmp);
-                        iv.setAdjustViewBounds(true);
-                        LinearLayout.LayoutParams lp = lpMatchWrap();
-                        lp.bottomMargin = dp(8);
-                        parent.addView(iv, lp);
-                        iv.setAlpha(0f);
-                        iv.animate().alpha(1f).setDuration(240).start();
-                    }
-                } catch (Exception ignored) {}
-            }
-        }
-    }
-
-    private boolean isImage(String name) {
-        String n = name.toLowerCase(Locale.ROOT);
-        return n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg")
-                || n.endsWith(".webp") || n.endsWith(".gif");
-    }
-
-    // =========================================================
     //                          公告页
     // =========================================================
     private void showNoticePage() {
@@ -1621,6 +1498,15 @@ public class MainActivity extends AppCompatActivity {
         etPriv.setTypeface(Typeface.MONOSPACE);
         tilPriv.addView(etPriv);
         innerRsa.addView(tilPriv);
+
+        MaterialButton btnPickKey = mdButtonTonal("选择已保存的私钥（应用名_时间）");
+        LinearLayout.LayoutParams pkp = lpMatchWrap();
+        pkp.topMargin = dp(8);
+        btnPickKey.setOnClickListener(v -> {
+            pressAnim(v);
+            pickSavedLicenseKey(etPriv);
+        });
+        innerRsa.addView(btnPickKey, pkp);
 
         TextInputLayout tilMid = new TextInputLayout(this);
         tilMid.setHint("机器码（宿主激活框显示）");
