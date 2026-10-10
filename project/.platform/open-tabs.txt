@@ -1,8 +1,0 @@
-#v2
-0
-/storage/emulated/0/Android/data/com.tyron.code/files/codeassist/projects/injector/app/src/main/java/com/example/injector/MainActivity.java	52877	1316	text
-/storage/emulated/0/Android/data/com.tyron.code/files/codeassist/projects/injector/app/src/main/res/values/themes.xml	150	0	text
-/storage/emulated/0/Android/data/com.tyron.code/files/codeassist/projects/injector/app/src/main/res/values/colors.xml	1751	4	text
-/storage/emulated/0/Android/data/com.tyron.code/files/codeassist/projects/injector/app/src/main/AndroidManifest.xml	1037	9	text
-/storage/emulated/0/Android/data/com.tyron.code/files/codeassist/projects/injector/app/src/main/res/layout/activity_main.xml	1114	12	text
-/storage/emulated/0/Android/data/com.tyron.code/files/codeassist/projects/injector/app/src/main/res/values/strings.xml	153	0	text

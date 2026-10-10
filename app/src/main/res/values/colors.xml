@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Sakura Light: pink-purple secondary anime theme -->
+    <color name="md_theme_primary">#F06292</color>
+    <color name="md_theme_onPrimary">#FFFFFF</color>
+    <color name="md_theme_primaryContainer">#FFE0EB</color>
+    <color name="md_theme_onPrimaryContainer">#3E001D</color>
+    <color name="md_theme_secondary">#8B5CF6</color>
+    <color name="md_theme_onSecondary">#FFFFFF</color>
+    <color name="md_theme_secondaryContainer">#EBDDFF</color>
+    <color name="md_theme_onSecondaryContainer">#23095C</color>
+    <color name="md_theme_tertiary">#5C8AFF</color>
+    <color name="md_theme_onTertiary">#FFFFFF</color>
+    <color name="md_theme_tertiaryContainer">#DDE5FF</color>
+    <color name="md_theme_onTertiaryContainer">#00174B</color>
+    <color name="md_theme_error">#BA1A1A</color>
+    <color name="md_theme_onError">#FFFFFF</color>
+    <color name="md_theme_errorContainer">#FFDAD6</color>
+    <color name="md_theme_onErrorContainer">#410002</color>
+    <color name="md_theme_background">#FFF5F8</color>
+    <color name="md_theme_onBackground">#22191D</color>
+    <color name="md_theme_surface">#FFF5F8</color>
+    <color name="md_theme_onSurface">#22191D</color>
+    <color name="md_theme_surfaceVariant">#FCE4EC</color>
+    <color name="md_theme_onSurfaceVariant">#514347</color>
+    <color name="md_theme_outline">#E491AC</color>
+    <color name="md_theme_outlineVariant">#F3D2DF</color>
+    <color name="md_theme_scrim">#000000</color>
+    <color name="md_theme_inverseSurface">#372E32</color>
+    <color name="md_theme_inverseOnSurface">#FBE8EF</color>
+    <color name="md_theme_inversePrimary">#FFB1C8</color>
+    <color name="ic_launcher_background">#F06292</color>
+    <color name="ic_launcher_foreground">#FFFFFF</color>
+</resources>

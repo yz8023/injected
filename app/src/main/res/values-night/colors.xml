@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Neon Night: deep purple base with neon pink/blue anime theme -->
+    <color name="md_theme_primary">#FF6EC7</color>
+    <color name="md_theme_onPrimary">#3E0030</color>
+    <color name="md_theme_primaryContainer">#5C1149</color>
+    <color name="md_theme_onPrimaryContainer">#FFD9EE</color>
+    <color name="md_theme_secondary">#7DF9FF</color>
+    <color name="md_theme_onSecondary">#00363B</color>
+    <color name="md_theme_secondaryContainer">#004F56</color>
+    <color name="md_theme_onSecondaryContainer">#BFF7FF</color>
+    <color name="md_theme_tertiary">#C0B3FF</color>
+    <color name="md_theme_onTertiary">#291560</color>
+    <color name="md_theme_tertiaryContainer">#40307A</color>
+    <color name="md_theme_onTertiaryContainer">#E5DEFF</color>
+    <color name="md_theme_error">#FFB4AB</color>
+    <color name="md_theme_onError">#690005</color>
+    <color name="md_theme_errorContainer">#93000A</color>
+    <color name="md_theme_onErrorContainer">#FFDAD6</color>
+    <color name="md_theme_background">#171226</color>
+    <color name="md_theme_onBackground">#E6DEEF</color>
+    <color name="md_theme_surface">#171226</color>
+    <color name="md_theme_onSurface">#E6DEEF</color>
+    <color name="md_theme_surfaceVariant">#241C38</color>
+    <color name="md_theme_onSurfaceVariant">#CBBBD8</color>
+    <color name="md_theme_outline">#8A5E9E</color>
+    <color name="md_theme_outlineVariant">#3A2E52</color>
+    <color name="md_theme_scrim">#000000</color>
+    <color name="md_theme_inverseSurface">#E6DEEF</color>
+    <color name="md_theme_inverseOnSurface">#332B3B</color>
+    <color name="md_theme_inversePrimary">#8E2958</color>
+    <color name="ic_launcher_background">#171226</color>
+    <color name="ic_launcher_foreground">#FF6EC7</color>
+</resources>
